@@ -1,0 +1,20 @@
+services:
+  leadhunterag:
+    build: .
+    image: leadhunterag-app
+    container_name: leadhunterag-container
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DOCKER_BUILDKIT=1
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1400

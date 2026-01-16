@@ -1,0 +1,11 @@
+streamlit
+playwright
+gspread
+python-dotenv
+google-auth
+pandas
+beautifulsoup4
+google-generativeai
+pytest-playwright
+lxml
+requests

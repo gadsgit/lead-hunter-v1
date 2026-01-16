@@ -1,0 +1,133 @@
+import streamlit as st
+import asyncio
+import pandas as pd
+from hunter import LeadHunter
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+st.set_page_config(page_title="Lead Hunter Mission Control", layout="wide", page_icon="🏹")
+
+# Custom Styling
+st.markdown("""
+    <style>
+    .main {
+        background-color: #0e1117;
+        color: #ffffff;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 5px;
+        height: 3em;
+        background-color: #ff4b4b;
+        color: white;
+    }
+    .status-box {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #262730;
+        margin-bottom: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🏹 Lead Hunter: Mission Control")
+st.markdown("Automated lead discovery, scoring, and storage.")
+st.markdown("---")
+
+# Sidebar Configuration
+st.sidebar.header("📡 Mission Parameters")
+target_keyword = st.sidebar.text_input("Target Keyword", value=os.getenv("KEYWORD", "Real Estate Agencies in Miami"))
+scrape_limit = st.sidebar.slider("Scrape Limit", 5, 50, int(os.getenv("SCRAPE_LIMIT", 10)))
+
+# Check for credentials
+creds_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "google-credentials.json")
+creds_exists = os.path.exists(creds_path)
+gemini_key = os.getenv("GEMINI_API_KEY")
+
+if not creds_exists:
+    st.sidebar.error("❌ google-credentials.json missing!")
+else:
+    st.sidebar.success("✅ Google Credentials found.")
+
+if not gemini_key or "your_gemini_api_key" in gemini_key:
+    st.sidebar.warning("⚠️ GEMINI_API_KEY not set. AI scoring will be disabled.")
+else:
+    st.sidebar.success("✅ Gemini AI ready.")
+
+if st.sidebar.button("🚀 Launch Hunter"):
+    if not creds_exists:
+        st.error("Cannot launch without Google Credentials.")
+    else:
+        st.session_state.hunting = True
+        st.session_state.logs = []
+        st.session_state.results = []
+
+# Main UI Area
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("📡 Live Intelligence Feed")
+    log_area = st.empty()
+    
+    def log_message(msg):
+        if 'logs' not in st.session_state:
+            st.session_state.logs = []
+        st.session_state.logs.append(msg)
+        # Display the last 20 logs
+        log_area.text_area("Logs", value="\n".join(st.session_state.logs[-20:]), height=400)
+
+with col2:
+    st.subheader("🎯 Qualified Lead Repository")
+    results_area = st.empty()
+
+async def run_hunter():
+    hunter = LeadHunter(target_keyword, limit=scrape_limit)
+    leads = await hunter.run_mission(update_callback=log_message)
+    return leads
+
+if st.session_state.get("hunting"):
+    # Clear previous results if any
+    st.session_state.results = []
+    
+    with st.spinner("Hunter is active in the field..."):
+        try:
+            # We use a wrapper to handle the event loop in Streamlit
+            results = asyncio.run(run_hunter())
+            st.session_state.results = results
+            st.session_state.hunting = False
+            st.success("Mission Accomplished! Qualified leads have been secured.")
+        except Exception as e:
+            st.error(f"Mission Failed: {e}")
+            st.session_state.hunting = False
+
+if st.session_state.get("results"):
+    df = pd.DataFrame(st.session_state.results)
+    if not df.empty:
+        results_area.dataframe(df.sort_values(by="score", ascending=False), use_container_width=True)
+        
+        # Stats
+        qualified_count = len(df[df['score'] > 70])
+        st.metric("Qualified Leads Found", qualified_count)
+        
+        # Download option
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Download Intel Report (CSV)",
+            csv,
+            f"leads_{target_keyword.replace(' ', '_')}.csv",
+            "text/csv",
+            key='download-csv'
+        )
+    else:
+        results_area.info("No leads found yet.")
+
+st.markdown("---")
+st.markdown("### 🛠️ Strategic Setup")
+with st.expander("Detailed Instructions"):
+    st.markdown("""
+    1. **Google Sheets**: Ensure `google-credentials.json` is in the root and the Sheet is shared with the service account email.
+    2. **Gemini AI**: Add your API key to `.env` to enable the 'Smart Filter' logic.
+    3. **Strategy**: The Hunter saves leads with Score > 70 to GSheets. Use **Rows.com** to import this sheet and perform deep email discovery on the top 10% of leads.
+    """)

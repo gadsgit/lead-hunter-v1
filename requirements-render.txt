@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+gspread
+python-dotenv
+google-auth
+google-generativeai
+requests

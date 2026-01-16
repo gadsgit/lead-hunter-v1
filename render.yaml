@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: lead-hunter-thinker
+    env: python
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: uvicorn thinker_app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_FILE
+        value: google-credentials.json
