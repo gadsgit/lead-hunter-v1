@@ -125,10 +125,8 @@ class LeadHunter:
 
     async def score_lead_ai(self, lead_name, website_content):
         if not self.model:
-            # Fallback heuristic
-            score = 50
-            if website_content: score += 20
-            return score, "Unknown", "AI scoring unavailable (No API key)"
+            # Fallback: Mark as pending AI review
+            return "Pending", "Pending", "Pending AI Review"
 
         prompt = f"""
         Analyze the following business information and website content for '{lead_name}'.
@@ -156,7 +154,7 @@ class LeadHunter:
         except Exception as e:
             print(f"AI Scoring Error: {e}")
         
-        return 50, "Unknown", "AI Error"
+        return "Pending", "Pending", "Pending AI Review"
 
     async def run_mission(self, update_callback=None):
         async with async_playwright() as p:

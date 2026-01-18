@@ -3,6 +3,7 @@ import asyncio
 import pandas as pd
 from hunter import LeadHunter
 import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,6 +57,38 @@ if not gemini_key or "your_gemini_api_key" in gemini_key:
 else:
     st.sidebar.success("✅ Gemini AI ready.")
 
+
+# --- Auto-Start with Manual Pause/Resume ---
+if 'hunting' not in st.session_state:
+    st.session_state.hunting = False
+if 'auto_start_timer' not in st.session_state:
+    st.session_state.auto_start_timer = time.time()
+if 'run_status' not in st.session_state:
+    st.session_state.run_status = True  # True = running, False = paused
+
+# UI Controls for Pause/Resume
+col_pause, col_resume = st.columns(2)
+with col_pause:
+    if st.button("⏸️ Pause Hunter"):
+        st.session_state.run_status = False
+        st.warning("System Paused. Click 'Resume' to continue.")
+with col_resume:
+    if st.button("🚀 Resume Hunter"):
+        st.session_state.run_status = True
+        st.success("Resuming Lead Hunt...")
+
+# Auto-start after 10 seconds if not paused
+if not st.session_state.hunting and st.session_state.run_status:
+    if time.time() - st.session_state.auto_start_timer > 10:
+        if creds_exists:
+            st.session_state.hunting = True
+            st.session_state.logs = []
+            st.session_state.results = []
+            st.info("Auto-started lead hunting after 10 seconds of inactivity.")
+        else:
+            st.error("Cannot launch without Google Credentials.")
+
+# Manual sidebar launch still works
 if st.sidebar.button("🚀 Launch Hunter"):
     if not creds_exists:
         st.error("Cannot launch without Google Credentials.")
@@ -63,6 +96,7 @@ if st.sidebar.button("🚀 Launch Hunter"):
         st.session_state.hunting = True
         st.session_state.logs = []
         st.session_state.results = []
+        st.session_state.auto_start_timer = time.time()
 
 # Main UI Area
 col1, col2 = st.columns([1, 2])
@@ -87,20 +121,24 @@ async def run_hunter():
     leads = await hunter.run_mission(update_callback=log_message)
     return leads
 
+
+# --- Main Hunter Loop with Pause Check ---
 if st.session_state.get("hunting"):
-    # Clear previous results if any
-    st.session_state.results = []
-    
-    with st.spinner("Hunter is active in the field..."):
-        try:
-            # We use a wrapper to handle the event loop in Streamlit
-            results = asyncio.run(run_hunter())
-            st.session_state.results = results
-            st.session_state.hunting = False
-            st.success("Mission Accomplished! Qualified leads have been secured.")
-        except Exception as e:
-            st.error(f"Mission Failed: {e}")
-            st.session_state.hunting = False
+    if not st.session_state.run_status:
+        st.info("System is idle. No credits being used.")
+    else:
+        # Clear previous results if any
+        st.session_state.results = []
+        with st.spinner("Hunter is active in the field..."):
+            try:
+                # We use a wrapper to handle the event loop in Streamlit
+                results = asyncio.run(run_hunter())
+                st.session_state.results = results
+                st.session_state.hunting = False
+                st.success("Mission Accomplished! Qualified leads have been secured.")
+            except Exception as e:
+                st.error(f"Mission Failed: {e}")
+                st.session_state.hunting = False
 
 if st.session_state.get("results"):
     df = pd.DataFrame(st.session_state.results)

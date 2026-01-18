@@ -47,22 +47,30 @@ class GSheetsHandler:
         if not self.sheet:
             if not self.connect():
                 return False
-        
         try:
             # Expected lead_data: list or dict
             if isinstance(lead_data, dict):
+                # If AI review is pending, fill in the appropriate fields
+                score = lead_data.get("score")
+                age = lead_data.get("age")
+                reasoning = lead_data.get("reasoning")
+                if score == "Pending":
+                    score = "Pending AI Review"
+                if age == "Pending":
+                    age = "Pending AI Review"
+                if reasoning == "Pending":
+                    reasoning = "Pending AI Review"
                 row = [
                     lead_data.get("name"),
                     lead_data.get("website"),
                     lead_data.get("email"),
                     lead_data.get("linkedin"),
-                    lead_data.get("score"),
-                    lead_data.get("age"),
-                    lead_data.get("reasoning")
+                    score,
+                    age,
+                    reasoning
                 ]
             else:
                 row = lead_data
-                
             self.sheet.append_row(row)
             return True
         except Exception as e:
