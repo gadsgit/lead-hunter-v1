@@ -216,14 +216,23 @@ class LeadHunter:
                 print(f"Using PLAYWRIGHT_BROWSERS_PATH: {browser_path}")
             
             # Launch browser with stealth settings
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-blink-features=AutomationControlled", # Hides the "bot" flag
-                ]
-            )
+            # Force the use of the new chromium_headless_shell which is default in recent Playwright versions
+            try:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-blink-features=AutomationControlled",
+                    ]
+                )
+            except Exception as e:
+                print(f"Standard launch failed: {e}. Attempting fallback...")
+                browser = await p.chromium.launch(
+                    headless=True,
+                    channel="chromium",
+                    args=["--no-sandbox", "--disable-setuid-sandbox"]
+                )
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
