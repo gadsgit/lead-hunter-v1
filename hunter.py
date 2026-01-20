@@ -31,11 +31,29 @@ class LeadHunter:
     async def scrape_google_maps(self, page):
         print(f"Searching Google Maps for: {self.keyword}")
         try:
-            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="networkidle")
-        except:
+            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="domcontentloaded", timeout=60000)
+        except Exception as e:
+            print(f"Initial navigation slow/failed: {e}")
             await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}")
         
         await self.sleep_random(5, 7)
+
+        # 2. HANDLE CONSENT SCREEN (Common on new IPs like Render)
+        try:
+            consent_selectors = [
+                'button[aria-label="Accept all"]',
+                'button[aria-label="Agree"]',
+                'button:has-text("Accept all")',
+                'button:has-text("I agree")',
+            ]
+            for selector in consent_selectors:
+                if await page.query_selector(selector):
+                    print(f"Found consent screen, clicking {selector}...")
+                    await page.click(selector)
+                    await self.sleep_random(2, 4)
+                    break
+        except:
+            pass
 
         # Check for "Google Maps can't find..."
         await page.screenshot(path="debug_search.png")
