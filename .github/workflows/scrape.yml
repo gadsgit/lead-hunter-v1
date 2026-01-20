@@ -31,5 +31,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GSHEETS_JSON: ${{ secrets.GSHEETS_JSON }}
           GOOGLE_SERVICE_ACCOUNT_FILE: google-credentials.json
+          SCRAPE_LIMIT: 10
         run: python hunter.py

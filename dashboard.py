@@ -44,13 +44,15 @@ scrape_limit = st.sidebar.slider("Scrape Limit", 5, 50, int(os.getenv("SCRAPE_LI
 
 # Check for credentials
 creds_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "google-credentials.json")
-creds_exists = os.path.exists(creds_path)
+creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GSHEETS_JSON")
+creds_exists = os.path.exists(creds_path) or creds_json is not None
 gemini_key = os.getenv("GEMINI_API_KEY")
 
 if not creds_exists:
     st.sidebar.error("❌ google-credentials.json missing!")
+    st.sidebar.info("Tip: You can set GOOGLE_CREDENTIALS_JSON as an environment variable.")
 else:
-    st.sidebar.success("✅ Google Credentials found.")
+    st.sidebar.success("✅ Google Credentials ready.")
 
 if not gemini_key or "your_gemini_api_key" in gemini_key:
     st.sidebar.warning("⚠️ GEMINI_API_KEY not set. AI scoring will be disabled.")

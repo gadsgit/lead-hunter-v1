@@ -1,0 +1,15 @@
+# Ignore sensitive keys
+.env
+*.key
+credentials.json
+
+# Ignore local database/cache
+__pycache__/
+*.db
+.pytest_cache
+.vscode/
+
+# Ignore Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore

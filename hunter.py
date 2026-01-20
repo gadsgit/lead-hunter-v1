@@ -37,45 +37,58 @@ class LeadHunter:
         
         # Scroll down to load more results
         for _ in range(5):
-            # Select the main results list container to scroll
-            # Google Maps results are usually in a div with role="feed" or similar
             try:
-                await page.mouse.wheel(0, 10000)
+                # Target the vertical result list specifically
+                feed_selector = 'div[role="feed"]'
+                feed = await page.query_selector(feed_selector)
+                if feed:
+                    await feed.focus()
+                    await page.mouse.wheel(0, 2000)
+                else:
+                    await page.mouse.wheel(0, 5000)
                 await self.sleep_random(2, 3)
             except:
                 break
 
-        # Extract items
-        # Selectors for Google Maps results often change, but 'div[role="article"]' or 'a.hfpxzc' are common
-        # Let's try to find anchors that have an aria-label which is usually the company name
+        # Improved selectors for results
+        # 'a.hfpxzc' is the current primary link/title selector
         items = await page.query_selector_all('a.hfpxzc')
         if not items:
-            # Fallback to article role
-            items = await page.query_selector_all('div[role="article"]')
+            # Fallback to names
+            items = await page.query_selector_all('.qBF1Pd')
 
         print(f"Found {len(items)} potential items.")
 
-        for item in items[:self.limit]:
+        processed_names = set()
+        for item in items:
+            if len(results) >= self.limit:
+                break
+                
             try:
+                # Try to get name from different possible locations
                 name = await item.get_attribute('aria-label')
-                # For hfpxzc, the name is in aria-label. For others, we might need a sub-selector
                 if not name:
-                    name_el = await item.query_selector('.qBF1Pd')
-                    if name_el:
-                        name = await name_el.inner_text()
+                    name = await item.inner_text()
                 
-                # To get the website, we often have to click the item or look for a specific button
-                # For now, let's try to find it in the current item attributes or nearby
-                # Usually, clicking is more reliable but slower.
+                name = name.strip() if name else ""
                 
-                # Try to find website link in the article
+                if not name or name in processed_names:
+                    continue
+                
+                processed_names.add(name)
+                
+                # Try to find website link. Usually a child or sibling with data-value="Website"
                 website = "N/A"
-                website_el = await item.query_selector('a[data-value="Website"]')
-                if website_el:
-                    website = await website_el.get_attribute('href')
+                # If we have the link, we can find the parent article to find the website button
+                # Go up to the article level to find the website button
+                article = await page.evaluate_handle('el => el.closest(\'div[role="article"]\')', item)
                 
-                if name:
-                    results.append({"name": name, "website": website})
+                if article:
+                    website_el = await article.as_element().query_selector('a[data-value="Website"]')
+                    if website_el:
+                        website = await website_el.get_attribute('href')
+                
+                results.append({"name": name, "website": website})
             except Exception as e:
                 print(f"Error extracting item: {e}")
         
@@ -188,13 +201,17 @@ class LeadHunter:
                 company["reasoning"] = reasoning
 
                 # 5. Storage
-                if score > 70:
+                # Convert score to 0 if it's "Pending" for the comparison check
+                comparison_score = score if isinstance(score, (int, float)) else 0
+                
+                if comparison_score > 70:
                     if update_callback:
                         update_callback(f"✅ QUALIFIED ({score}): {company['name']}. Saving to GSheets...")
                     self.gsheets.append_lead(company)
                 else:
+                    status_text = f"Low Score ({score})" if comparison_score < 70 else "Pending AI Review"
                     if update_callback:
-                        update_callback(f"⚠️ Low Score ({score}): {company['name']}. Skipping storage.")
+                        update_callback(f"⚠️ {status_text}: {company['name']}. Skipping storage.")
                 
                 self.leads.append(company)
                 await self.sleep_random(2, 5)
@@ -204,5 +221,15 @@ class LeadHunter:
             return self.leads
 
 if __name__ == "__main__":
-    hunter = LeadHunter("Real Estate Agencies in Miami", limit=2)
-    asyncio.run(hunter.run_mission(print))
+    # Test run
+    try:
+        keyword = os.getenv("KEYWORD", "Real Estate Agencies in Miami")
+        limit = int(os.getenv("SCRAPE_LIMIT", 2))
+        print(f"Starting test run for keyword: {keyword}, limit: {limit}")
+        hunter = LeadHunter(keyword, limit=limit)
+        asyncio.run(hunter.run_mission(print))
+    except Exception as e:
+        print(f"CRITICAL ERROR in hunter.py: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
