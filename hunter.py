@@ -30,34 +30,47 @@ class LeadHunter:
 
     async def scrape_google_maps(self, page):
         print(f"Searching Google Maps for: {self.keyword}")
-        await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}")
+        try:
+            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="networkidle")
+        except:
+            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}")
+        
         await self.sleep_random(5, 7)
+
+        # Check for "Google Maps can't find..."
+        if await page.query_selector('text="Google Maps can\'t find"'):
+            print(f"No results found for {self.keyword}")
+            return []
 
         results = []
         
+        # Try to wait for the results container or at least one result
+        try:
+            await page.wait_for_selector('a.hfpxzc', timeout=10000)
+        except:
+            print("Timed out waiting for results selector. Page might be loading slow or different layout.")
+
         # Scroll down to load more results
         for _ in range(5):
             try:
-                # Target the vertical result list specifically
                 feed_selector = 'div[role="feed"]'
                 feed = await page.query_selector(feed_selector)
                 if feed:
                     await feed.focus()
-                    await page.mouse.wheel(0, 2000)
+                    await page.mouse.wheel(0, 3000)
                 else:
                     await page.mouse.wheel(0, 5000)
                 await self.sleep_random(2, 3)
             except:
                 break
 
-        # Improved selectors for results
-        # 'a.hfpxzc' is the current primary link/title selector
+        # Primary selector for results links
         items = await page.query_selector_all('a.hfpxzc')
         if not items:
-            # Fallback to names
+            # Secondary selector: company names
             items = await page.query_selector_all('.qBF1Pd')
 
-        print(f"Found {len(items)} potential items.")
+        print(f"Found {len(items)} items in view. Processing up to {self.limit}...")
 
         processed_names = set()
         for item in items:
@@ -65,33 +78,40 @@ class LeadHunter:
                 break
                 
             try:
-                # Try to get name from different possible locations
                 name = await item.get_attribute('aria-label')
                 if not name:
                     name = await item.inner_text()
                 
                 name = name.strip() if name else ""
-                
                 if not name or name in processed_names:
                     continue
                 
                 processed_names.add(name)
                 
-                # Try to find website link. Usually a child or sibling with data-value="Website"
                 website = "N/A"
-                # If we have the link, we can find the parent article to find the website button
-                # Go up to the article level to find the website button
+                # Locate the parent article to find the website button
                 article = await page.evaluate_handle('el => el.closest(\'div[role="article"]\')', item)
                 
                 if article:
+                    # Sometimes the website button is inside the article but not a direct child
                     website_el = await article.as_element().query_selector('a[data-value="Website"]')
                     if website_el:
                         website = await website_el.get_attribute('href')
                 
+                print(f"  + Scraped: {name} ({website})")
                 results.append({"name": name, "website": website})
             except Exception as e:
                 print(f"Error extracting item: {e}")
         
+        if not results:
+            print("⚠️ Re-checking with fallback extraction...")
+            # If still nothing, one final attempt looking for any visible text that looks like a business name
+            potential_names = await page.query_selector_all('.fontHeadlineSmall')
+            for el in potential_names[:self.limit]:
+                name = await el.inner_text()
+                if name:
+                    results.append({"name": name.strip(), "website": "N/A"})
+
         return results
 
     async def scrape_website(self, page, url):
