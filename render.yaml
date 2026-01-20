@@ -2,7 +2,7 @@ services:
   - type: web
     name: lead-hunter-thinker
     env: python
-    buildCommand: pip install -r requirements-render.txt
+    buildCommand: pip install -r requirements-render.txt && playwright install chromium --with-deps
     startCommand: uvicorn thinker_app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: GEMINI_API_KEY
@@ -11,3 +11,5 @@ services:
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_FILE
         value: google-credentials.json
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/playwright
