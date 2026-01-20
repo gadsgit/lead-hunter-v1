@@ -210,7 +210,12 @@ class LeadHunter:
 
     async def run_mission(self, update_callback=None):
         async with async_playwright() as p:
-            # Launch browser
+            # Explicitly check for Render's browser path
+            browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+            if browser_path:
+                print(f"Using PLAYWRIGHT_BROWSERS_PATH: {browser_path}")
+            
+            # Launch browser with stealth settings
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
