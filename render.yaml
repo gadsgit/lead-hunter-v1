@@ -9,7 +9,15 @@ services:
         sync: false
       - key: GOOGLE_SHEET_ID
         sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_FILE
         value: google-credentials.json
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /opt/render/project/playwright
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SKIP_BROWSER_DOWNLOAD
+        value: "0" # Set to 1 only if you pre-packaged browsers
