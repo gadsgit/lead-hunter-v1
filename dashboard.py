@@ -113,6 +113,9 @@ with col1:
         st.session_state.logs.append(msg)
         # Display the last 20 logs
         log_area.text_area("Logs", value="\n".join(st.session_state.logs[-20:]), height=400)
+        # If a debug screenshot exists, show it
+        if os.path.exists("debug_search.png"):
+            st.sidebar.image("debug_search.png", caption="Last Browser View")
 
 with col2:
     st.subheader("🎯 Qualified Lead Repository")

@@ -38,6 +38,7 @@ class LeadHunter:
         await self.sleep_random(5, 7)
 
         # Check for "Google Maps can't find..."
+        await page.screenshot(path="debug_search.png")
         if await page.query_selector('text="Google Maps can\'t find"'):
             print(f"No results found for {self.keyword}")
             return []
@@ -194,11 +195,15 @@ class LeadHunter:
             # Launch browser
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-blink-features=AutomationControlled", # Hides the "bot" flag
+                ]
             )
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = await context.new_page()
 
