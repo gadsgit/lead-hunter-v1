@@ -210,13 +210,13 @@ class LeadHunter:
 
     async def run_mission(self, update_callback=None):
         async with async_playwright() as p:
-            # Explicitly check for Render's browser path
-            browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-            if browser_path:
-                print(f"Using PLAYWRIGHT_BROWSERS_PATH: {browser_path}")
+            # Check if we are on Render (which has this variable set)
+            # otherwise use the default for local development.
+            executable_dir = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+            if executable_dir:
+                print(f"Seeking browser in persistent path: {executable_dir}")
             
             # Launch browser with stealth settings
-            # Force the use of the new chromium_headless_shell which is default in recent Playwright versions
             try:
                 browser = await p.chromium.launch(
                     headless=True,
@@ -228,6 +228,7 @@ class LeadHunter:
                 )
             except Exception as e:
                 print(f"Standard launch failed: {e}. Attempting fallback...")
+                # If standard launch fails, it might be due to pathing or specific binary missing
                 browser = await p.chromium.launch(
                     headless=True,
                     channel="chromium",
