@@ -5,6 +5,7 @@ import re
 import os
 from playwright.async_api import async_playwright
 import glob
+import json
 from bs4 import BeautifulSoup
 import pandas as pd
 from gsheets_handler import GSheetsHandler
@@ -36,7 +37,7 @@ class LeadHunter:
     async def scrape_google_maps(self, page):
         print(f"Searching Google Maps for: {self.keyword}")
         try:
-            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="domcontentloaded", timeout=60000)
+            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="networkidle", timeout=60000)
         except Exception as e:
             print(f"Initial navigation slow/failed: {e}")
             await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}")
@@ -202,16 +203,19 @@ class LeadHunter:
         """
         try:
             response = self.model.generate_content(prompt)
-            # Find JSON in response
-            match = re.search(r'\{.*\}', response.text, re.DOTALL)
-            if match:
-                import json
-                data = json.loads(match.group(0))
-                return data.get("score", 0), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI")
+            # Handle possible markdown wrapping from LLM
+            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            # If there's still extra text around the JSON, try to find the first { and last }
+            start = clean_text.find('{')
+            end = clean_text.rfind('}') + 1
+            if start != -1 and end != 0:
+                clean_text = clean_text[start:end]
+                
+            data = json.loads(clean_text)
+            return data.get("score", 0), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI")
         except Exception as e:
             print(f"AI Scoring Error: {e}")
-        
-        return "Pending", "Pending", "Pending AI Review"
+            return 50, "Unknown", "AI parsing failed, using default score"
 
     async def run_mission(self, update_callback=None):
         async with async_playwright() as p:
