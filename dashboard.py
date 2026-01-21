@@ -71,9 +71,17 @@ def get_ram_usage():
         return 0
 
 ram_mb = get_ram_usage()
-st.sidebar.metric("RAM Usage", f"{ram_mb:.2f} MB", delta_color="inverse")
-if ram_mb > 450:
-    st.sidebar.warning("⚠️ Critical: Approaching 512MB limit!")
+with st.sidebar:
+    st.divider()
+    if ram_mb < 350:
+        st.success(f"📊 RAM: {ram_mb:.1f}MB / 512MB (Safe)")
+    elif ram_mb < 450:
+        st.warning(f"📊 RAM: {ram_mb:.1f}MB (High)")
+    else:
+        st.error(f"📊 RAM: {ram_mb:.1f}MB (CRITICAL)")
+        st.warning("⚠️ Approaching 512MB limit! Browser will restart automatically.")
+        if st.button("🗑️ Clear Cache"):
+            st.cache_data.clear()
 
 # --- Lead Dorking Toolkit ---
 with st.sidebar:
