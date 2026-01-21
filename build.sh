@@ -10,9 +10,9 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # 2. Install Playwright "Headless Shell" ONLY
-# This is a lighter-weight version of Chromium designed for RAM-constrained environments
+# We remove --with-deps because it requires sudo, which is not available on Render.
 echo "Installing Playwright Chromium (Headless Shell)..."
 export PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/playwright
-python -m playwright install --with-deps chromium
+python -m playwright install chromium
 
 echo "--- BUILD COMPLETE ---"
