@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import json
 
 load_dotenv()
+if os.path.exists(".env.local"):
+    load_dotenv(".env.local", override=True)
 
 app = FastAPI(title="Lead Hunter Thinker")
 

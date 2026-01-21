@@ -2,9 +2,18 @@
 # exit on error
 set -o errexit
 
-# Install all combined requirements
+echo "--- STARTING BUILD ---"
+
+# 1. Install dependencies
+echo "Installing Python dependencies..."
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# Download the browser ONLY on Render's server
-# We use the path variable you set in the Render Dashboard
-python -m playwright install --with-deps chromium
+# 2. Install Playwright browsers
+echo "Installing Playwright Chromium..."
+# We omit --with-deps because it requires sudo, which isn't available on Render's native env.
+# Render's Python environment usually comes pre-packaged with the necessary system libs.
+export PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/playwright
+python -m playwright install chromium
+
+echo "--- BUILD COMPLETE ---"

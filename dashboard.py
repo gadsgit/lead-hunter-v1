@@ -7,6 +7,8 @@ import time
 from dotenv import load_dotenv
 
 load_dotenv()
+if os.path.exists(".env.local"):
+    load_dotenv(".env.local", override=True)
 
 st.set_page_config(page_title="Lead Hunter Mission Control", layout="wide", page_icon="🏹")
 
