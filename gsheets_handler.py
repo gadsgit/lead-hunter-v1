@@ -71,7 +71,9 @@ class GSheetsHandler:
 
     def append_lead(self, lead_data):
         if not self.sheet:
+            print("📡 Connection to sheet not established. Attempting to connect...")
             if not self.connect():
+                print("❌ Failed to establish connection during append_lead.")
                 return False
         try:
             # Expected lead_data: dict
@@ -91,8 +93,13 @@ class GSheetsHandler:
                 ]
             else:
                 row = lead_data
+            
             self.sheet.append_row(row)
+            print(f"✅ Successfully saved to GSheets: {row[0]}")
             return True
         except Exception as e:
-            print(f"Error appending row: {e}")
+            # This is the "Why" catcher requested
+            print(f"❌ GSheets Error Detail: {str(e)}")
+            if "PERMISSION_DENIED" in str(e).upper():
+                print("💡 TIP: Ensure the sheet is SHARED with the service account email.")
             return False
