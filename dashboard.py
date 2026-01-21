@@ -1,8 +1,9 @@
 import streamlit as st
 import asyncio
-from hunter import LeadHunter
 import os
 import time
+import psutil
+from hunter import LeadHunter
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -60,6 +61,19 @@ if not gemini_key or "your_gemini_api_key" in gemini_key:
 else:
     st.sidebar.success("✅ Gemini AI ready.")
 
+# --- RAM Usage Monitor ---
+def get_ram_usage():
+    try:
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / 1024 / 1024  # Convert to MB
+    except:
+        return 0
+
+ram_mb = get_ram_usage()
+st.sidebar.metric("RAM Usage", f"{ram_mb:.2f} MB", delta_color="inverse")
+if ram_mb > 450:
+    st.sidebar.warning("⚠️ Critical: Approaching 512MB limit!")
+
 
 # --- Auto-Start with Manual Pause/Resume ---
 if 'hunting' not in st.session_state:
@@ -108,13 +122,16 @@ with col1:
     st.subheader("📡 Live Intelligence Feed")
     log_area = st.empty()
     
+    # Updated log feed logic per user request
     def log_message(msg):
         if 'logs' not in st.session_state:
             st.session_state.logs = []
         st.session_state.logs.append(msg)
-        # Display the last 20 logs
-        log_area.text_area("Logs", value="\n".join(st.session_state.logs[-20:]), height=400)
-        # If a debug screenshot exists, show it
+        # Display the last 10 lines in a code block
+        display_text = "\n".join(st.session_state.logs[-10:])
+        log_area.code(display_text)
+        
+        # If a debug screenshot exists, show it (optional sidebar update)
         if os.path.exists("debug_search.png"):
             st.sidebar.image("debug_search.png", caption="Last Browser View")
 
