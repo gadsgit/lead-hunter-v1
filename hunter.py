@@ -603,6 +603,79 @@ class LeadHunter:
             # 4. MARK AS DONE
             self.gsheets.mark_mission_complete(query)
 
+    async def run_automated_mission(self, dork_query, source="linkedin", update_callback=None):
+        """
+        Executes a mission using a SPECIFIC dork from the sidebar toolkit.
+        Scrape → Analyze → Save logic to ensure 0 'Pending' results.
+        """
+        async with async_playwright() as p:
+            browser, page = await self.get_browser_and_page(p)
+            
+            if update_callback: update_callback(f"Deploying Bot for X-Ray: {dork_query}")
+            
+            # Use Google results for safety
+            try:
+                await page.goto(f"https://www.google.com/search?q={dork_query.replace(' ', '+')}", wait_until="networkidle")
+            except:
+                await page.goto(f"https://www.google.com/search?q={dork_query.replace(' ', '+')}")
+            
+            await self.sleep_random(5, 8)
+            
+            links_elements = await page.query_selector_all('a')
+            profiles = []
+            processed_urls = set()
+            
+            for link in links_elements:
+                if len(profiles) >= self.limit: break
+                href = await link.get_attribute('href')
+                if href and ("linkedin.com" in href or "instagram.com" in href):
+                    # Basic cleaning
+                    if "/url?q=" in href:
+                        match = re.search(r'url\?q=([^&]*)', href)
+                        if match: href = match.group(1)
+                    clean_url = href.split('&')[0].split('?')[0]
+                    if clean_url in processed_urls: continue
+                    processed_urls.add(clean_url)
+                    
+                    try:
+                        container = await page.evaluate_handle('el => el.closest(".g, .MjjYud")', link)
+                        if container:
+                            h3 = await container.as_element().query_selector('h3')
+                            name = await h3.inner_text() if h3 else "Lead"
+                            snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M')
+                            snippet = await snippet_el.inner_text() if snippet_el else "No snippet"
+                        else:
+                            name, snippet = "Lead", "No snippet"
+                    except:
+                        name, snippet = "Lead", "No snippet"
+                        
+                    profiles.append({"name": name, "url": clean_url, "snippet": snippet})
+
+            # FREE RAM
+            await browser.close()
+            
+            final_leads = []
+            for profile in profiles:
+                if update_callback: update_callback(f"AI Analyzing: {profile['name']}")
+                
+                # Analyze snippet
+                score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["snippet"])
+                
+                lead = {
+                    "name": profile["name"],
+                    "url": profile["url"],
+                    "score": score,
+                    "decision": decision,
+                    "summary": summary
+                }
+                
+                # Save using the smart router
+                self.gsheets.save_lead(lead, query=dork_query, source=source)
+                final_leads.append(lead)
+                
+            if update_callback: update_callback(f"Mission Done. Leads saved to GSheets.")
+            return final_leads
+
     def detect_source(self, query):
         """
         Smart detection: If it looks like a person search (CEO, Founder, Manager, LinkedIn)

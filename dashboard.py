@@ -103,6 +103,19 @@ with st.sidebar:
 
         st.info("💡 Tip: Use these to verify leads before running the automated scraper.")
 
+        st.divider()
+        st.subheader("🤖 Automated Execution")
+        selected_mission = st.selectbox("Select Strategy", list(dorks.keys()))
+        
+        if st.button(f"🚀 Launch {selected_mission}", use_container_width=True):
+            st.session_state.hunting_mode = "automated"
+            st.session_state.automated_query = dorks[selected_mission]
+            # Route to correct tab for logs
+            source = "linkedin" if "linkedin" in dorks[selected_mission].lower() else "google"
+            st.session_state.automated_source = source
+            st.session_state.launch_trigger = True
+            st.toast(f"Starting mission for: {dork_niche}...", icon="📡")
+
 
 # --- Auto-Start with Manual Pause/Resume ---
 if 'hunting' not in st.session_state:
@@ -195,6 +208,15 @@ if st.session_state.get("hunting"):
                 source = hunter.detect_source(target_keyword)
                 callback = log_message_l if source == "linkedin" else log_message_g
                 results = asyncio.run(hunter.run_smart_mission(target_keyword, update_callback=callback))
+                if source == "linkedin":
+                    st.session_state.results_l = results
+                else:
+                    st.session_state.results_g = results
+            elif mode == "automated":
+                query = st.session_state.get("automated_query")
+                source = st.session_state.get("automated_source", "linkedin")
+                callback = log_message_l if source == "linkedin" else log_message_g
+                results = asyncio.run(hunter.run_automated_mission(query, source=source, update_callback=callback))
                 if source == "linkedin":
                     st.session_state.results_l = results
                 else:

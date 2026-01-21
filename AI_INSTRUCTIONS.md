@@ -20,3 +20,8 @@
 - **Keywords:** Always make `Keyword` the first column in both tabs.
 - **Checkpoints:** GSheets "Mission_Progress" tab is the source of truth for history.
 - **Goal:** Never re-scrape a lead that exists in GSheets.
+
+### ONE-CLICK DORK SCRAPER SKILL
+- **Logic:** Streamlit Sidebar → Dork Generator → Background Playwright Task → GSheets Router.
+- **Safety:** Rotate User-Agents for every Launch button click.
+- **Workflow:** Scouts with sidebar (real IP) → Deploys bot (Rotation/Proxy/Stealth) for extraction.
