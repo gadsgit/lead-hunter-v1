@@ -256,7 +256,7 @@ class LeadHunter:
     async def score_lead_ai(self, lead_name, website_content):
         if not self.model:
             # Fallback: Mark as pending AI review
-            return "Pending", "Pending", "Pending AI Review"
+            return "Pending", "Pending", "Pending", "Pending AI Review"
 
         prompt = f"""
         Analyze the following business information and website content for '{lead_name}'.
@@ -269,8 +269,9 @@ class LeadHunter:
         Return exactly in this JSON format:
         {{
             "score": <integer>,
+            "decision": "<Qualified, Not Qualified, or Neutral>",
             "inferred_age": "<string>",
-            "reasoning": "<short sentence>"
+            "reasoning": "<short summary for the summary column>"
         }}
         """
         try:
@@ -284,10 +285,10 @@ class LeadHunter:
                 clean_text = clean_text[start:end]
                 
             data = json.loads(clean_text)
-            return data.get("score", 0), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI")
+            return data.get("score", 0), data.get("decision", "Neutral"), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI")
         except Exception as e:
             print(f"AI Scoring Error: {e}")
-            return 50, "Unknown", "AI parsing failed, using default score"
+            return 50, "Neutral", "Unknown", "AI parsing failed, using default score"
 
     async def run_mission(self, keyword=None, update_callback=None):
         target_keyword = keyword if keyword else self.keyword
@@ -387,8 +388,9 @@ class LeadHunter:
                          company["linkedin"] = found_li
                 
                 # 4. AI Scoring (Uses content, then we can discard content)
-                score, age, reasoning = await self.score_lead_ai(company["name"], website_content)
+                score, decision, age, reasoning = await self.score_lead_ai(company["name"], website_content)
                 company["score"] = score
+                company["decision"] = decision
                 company["age"] = age
                 company["reasoning"] = reasoning
 
