@@ -1,13 +1,22 @@
+# Web & UI
 streamlit
-playwright
-gspread
-python-dotenv
-google-auth
-pandas
-beautifulsoup4
-google-generativeai
 fastapi
 uvicorn
-pytest-playwright
+
+# Scraping
+playwright
+playwright-stealth
+beautifulsoup4
 lxml
+
+# Data & Google API
+gspread
+pandas
+google-auth
+google-api-python-client
+google-generativeai
+
+# Utilities
+python-dotenv
 requests
+pytest-playwright
