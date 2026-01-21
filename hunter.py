@@ -18,7 +18,7 @@ if os.path.exists(".env.local"):
 IS_RENDER = os.getenv("RENDER") == "true"
 
 class LeadHunter:
-    def __init__(self, keyword, limit=10):
+    def __init__(self, keyword=None, limit=10):
         self.keyword = keyword
         self.limit = limit
         self.gsheets = GSheetsHandler()
@@ -32,6 +32,36 @@ class LeadHunter:
 
     async def sleep_random(self, min_s=2, max_s=5):
         await asyncio.sleep(random.uniform(min_s, max_s))
+
+    async def extract_socials(self, page):
+        """
+        Scans the current page for social media patterns.
+        """
+        social_patterns = {
+            "linkedin": "linkedin.com/company",
+            "instagram": "instagram.com/",
+            "facebook": "facebook.com/",
+            "twitter": "x.com/"
+        }
+        found_socials = {k: "N/A" for k in social_patterns}
+        
+        try:
+            # 1. Grab all hrefs
+            hrefs = await page.evaluate(
+                "() => Array.from(document.querySelectorAll('a[href]')).map(a => a.href)"
+            )
+            
+            # 2. Match patterns
+            for link in hrefs:
+                link_lower = link.lower()
+                for platform, pattern in social_patterns.items():
+                    if pattern in link_lower and "sharer" not in link_lower and "intent" not in link_lower:
+                        if found_socials[platform] == "N/A":
+                            found_socials[platform] = link
+        except Exception as e:
+            print(f"Error extracting socials: {e}")
+            
+        return found_socials
 
     async def scrape_google_maps(self, page):
         print(f"Searching Google Maps for: {self.keyword}")
@@ -139,9 +169,14 @@ class LeadHunter:
 
     async def scrape_website(self, page, url):
         if not url or url == "N/A":
-            return "", []
+            return "", [], {}, "N/A"
 
         print(f"Scraping website: {url}")
+        content = ""
+        emails = []
+        socials = {}
+        phone = "N/A"
+
         try:
             await page.goto(url, wait_until="networkidle", timeout=30000)
             await self.sleep_random(2, 4)
@@ -152,13 +187,52 @@ class LeadHunter:
             # Extract emails
             html = await page.content()
             emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
-            # Filter out common junk emails
             emails = [e for e in emails if not e.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg'))]
             
-            return content[:5000], emails # First 5000 chars for LLM
+            # Phone Extraction (Simple regex)
+            # Looks for common formats: (123) 456-7890, 123-456-7890, +1 123 456 7890
+            phone_match = re.search(r'(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', content)
+            if phone_match:
+                phone = phone_match.group(0).strip()
+
+            # Socials - Round 1 (Homepage)
+            socials = await self.extract_socials(page)
+            
+            # Contact Page Jump for deeper social extraction
+            # If we missed major socials, try to find a 'Contact' or 'About' page
+            if socials["linkedin"] == "N/A" or socials["instagram"] == "N/A":
+                try:
+                    # Look for Contact/About link
+                    # We match flexible text or href containing 'contact'/'about'
+                    contact_link = await page.query_selector('a[href*="contact"], a[href*="Contact"], a[href*="about"], a[href*="About"]')
+                    if not contact_link:
+                         # Fallback to text content
+                         contact_link = await page.query_selector('a:has-text("Contact"), a:has-text("About")')
+
+                    if contact_link:
+                        href = await contact_link.get_attribute('href')
+                        if href:
+                            print(f"  -> Jumping to potential Contact/About page: {href[:30]}...")
+                            # Construct absolute URL if relative
+                            if not href.startswith('http'):
+                                from urllib.parse import urljoin
+                                href = urljoin(page.url, href)
+                            
+                            await page.goto(href, wait_until="networkidle", timeout=15000)
+                            await self.sleep_random(1, 3)
+                            
+                            # Socials - Round 2 (Merge)
+                            more_socials = await self.extract_socials(page)
+                            for k, v in more_socials.items():
+                                if socials[k] == "N/A" and v != "N/A":
+                                    socials[k] = v
+                except Exception as ex:
+                    print(f"  -> Contact jump info: {ex}")
+            
+            return content[:5000], emails, socials, phone # First 5000 chars for LLM
         except Exception as e:
             print(f"Error scraping {url}: {e}")
-            return "", []
+            return "", [], {}, "N/A"
 
     async def search_linkedin(self, page, company_name):
         print(f"Searching LinkedIn for: {company_name}")
@@ -215,7 +289,16 @@ class LeadHunter:
             print(f"AI Scoring Error: {e}")
             return 50, "Unknown", "AI parsing failed, using default score"
 
-    async def run_mission(self, update_callback=None):
+    async def run_mission(self, keyword=None, update_callback=None):
+        target_keyword = keyword if keyword else self.keyword
+        if not target_keyword:
+            print("❌ No keyword provided for mission.")
+            return []
+
+        # 0. Checkpoint: Load History
+        print("📋 Loading mission history...")
+        existing_websites = self.gsheets.get_existing_leads()
+
         async with async_playwright() as p:
             # Tell Python to look in the persistent Render folder
             render_browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/project/playwright")
@@ -232,55 +315,75 @@ class LeadHunter:
                     executable_path = matches[0]
                     print(f"Found browser executable at: {executable_path}")
 
-            # Launch browser with "Slim" settings for 512MB limit
+            # Launch browser with "Slim" settings
+            launch_kwargs = {
+                "headless": True,
+                "args": [
+                    "--no-sandbox", 
+                    "--disable-setuid-sandbox", 
+                    "--disable-dev-shm-usage", 
+                    "--disable-gpu",
+                    "--single-process"
+                ]
+            }
+            if executable_path:
+                launch_kwargs["executable_path"] = executable_path
+            
             try:
-                launch_kwargs = {
-                    "headless": True,
-                    "args": [
-                        "--no-sandbox", 
-                        "--disable-setuid-sandbox", 
-                        "--disable-dev-shm-usage", 
-                        "--disable-gpu",
-                        "--single-process" # Significantly reduces process overhead
-                    ]
-                }
-                if executable_path:
-                    launch_kwargs["executable_path"] = executable_path
-                
                 browser = await p.chromium.launch(**launch_kwargs)
             except Exception as e:
-                print(f"Launch Error: {e}")
+                print(f"Launch Error with custom path: {e}")
                 browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             
             context = await browser.new_context()
             page = await context.new_page()
 
-            # AGGRESSIVE MEDIA BLOCKING (The #1 RAM Saver)
+            # AGGRESSIVE MEDIA BLOCKING
             await page.route("**/*", lambda route: 
                 route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
                 else route.continue_()
             )
 
             # 1. Search Google Maps
-            if update_callback: update_callback(f"🚀 Starting Mission: {self.keyword}")
-            basic_companies = await self.scrape_google_maps(page)
+            # Temporarily set self.keyword for scrape_google_maps or pass it
+            original_keyword = self.keyword
+            self.keyword = target_keyword # Update internal state for scrape_google_maps
             
+            if update_callback: update_callback(f"🚀 Starting Mission: {self.keyword}")
+            
+            try:
+                basic_companies = await self.scrape_google_maps(page)
+            finally:
+                self.keyword = original_keyword # Restore
+
             final_leads = []
 
             for basic_info in basic_companies:
+                # CHECKPOINT: Skip if we already have this URL
+                if basic_info.get("website") in existing_websites:
+                    print(f"⏩ Skipping {basic_info['name']} (Already in Repository)")
+                    if update_callback: update_callback(f"⏩ Skipping {basic_info['name']} (Duplicate)")
+                    continue
+
                 if update_callback:
                     update_callback(f"🔍 Analyzing {basic_info['name']}...")
                 
                 # Create a fresh lead object for this individual step
                 company = basic_info.copy()
                 
-                # 2. Scrape Website and Extract Emails
+                # 2. Scrape Website and Extract Emails & Socials
                 # Heavy data (content) is only temporary here
-                website_content, emails = await self.scrape_website(page, company["website"])
-                company["email"] = ", ".join(emails) if emails else "N/A"
+                website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
                 
-                # 3. LinkedIn Search
-                company["linkedin"] = await self.search_linkedin(page, company["name"])
+                company["email"] = ", ".join(emails) if emails else "N/A"
+                company["phone"] = phone
+                company.update(socials) # Adds linkedin, instagram, facebook, etc. to keys
+                
+                # 3. LinkedIn Search (Fallback if not found on site)
+                if company.get("linkedin") == "N/A":
+                     found_li = await self.search_linkedin(page, company["name"])
+                     if found_li != "N/A":
+                         company["linkedin"] = found_li
                 
                 # 4. AI Scoring (Uses content, then we can discard content)
                 score, age, reasoning = await self.score_lead_ai(company["name"], website_content)
@@ -320,17 +423,47 @@ class LeadHunter:
                 await self.sleep_random(2, 5)
 
             await browser.close()
-            if update_callback: update_callback("🏁 Mission Complete!")
+            if update_callback: update_callback(f"🏁 Mission Complete: {target_keyword}")
             return final_leads
+
+    async def start_global_hunt(self, targets=None):
+        if not targets:
+            targets = [self.keyword] if self.keyword else []
+        
+        # 1. Ask GSheets: "What have we already done?"
+        finished = self.gsheets.get_finished_missions()
+        
+        for query in targets:
+            # 2. CHECKPOINT: Skip if already in the Mission_Progress tab
+            if query in finished:
+                print(f"⏭️ Skipping Mission '{query}' - Already completed.")
+                continue
+                
+            print(f"🚀 Starting New Mission: {query}")
+            
+            # 3. Run search and save logic
+            await self.run_mission(keyword=query, update_callback=print)
+            
+            # 4. MARK AS DONE
+            self.gsheets.mark_mission_complete(query)
 
 if __name__ == "__main__":
     # Test run
     try:
         keyword = os.getenv("KEYWORD", "Real Estate Agencies in Miami")
         limit = int(os.getenv("SCRAPE_LIMIT", 2))
-        print(f"Starting test run for keyword: {keyword}, limit: {limit}")
-        hunter = LeadHunter(keyword, limit=limit)
-        asyncio.run(hunter.run_mission(print))
+        
+        # Check if comma-separated list
+        if "," in keyword:
+            targets = [k.strip() for k in keyword.split(",")]
+            print(f"Starting GLOBAL HUNT for targets: {targets}, limit: {limit}")
+            hunter = LeadHunter(limit=limit)
+            asyncio.run(hunter.start_global_hunt(targets))
+        else:
+            print(f"Starting Single Run for keyword: {keyword}, limit: {limit}")
+            hunter = LeadHunter(keyword, limit=limit)
+            # We use global hunt even for single to get the benefit of completion marking
+            asyncio.run(hunter.start_global_hunt([keyword]))
     except Exception as e:
         print(f"CRITICAL ERROR in hunter.py: {e}")
         import traceback

@@ -88,7 +88,7 @@ class GSheetsHandler:
             
             # Initialize headers if sheet is empty
             if not self.sheet.get_all_values():
-                headers = ["Company Name", "Website", "Email", "LinkedIn URL", "Score", "Inferred Age", "Reasoning"]
+                headers = ["Company Name", "Website", "Emails", "Phone", "LinkedIn", "Instagram", "Facebook", "Score", "Decision", "Summary"]
                 self.sheet.append_row(headers)
             
             return True
@@ -96,30 +96,29 @@ class GSheetsHandler:
             print(f"Error connecting to Google Sheets: {e}")
             return False
 
-    def append_lead(self, lead_data):
+    def append_lead(self, company_data):
         if not self.sheet:
             print("📡 Connection to sheet not established. Attempting to connect...")
             if not self.connect():
                 print("❌ Failed to establish connection during append_lead.")
                 return False
         try:
-            # Expected lead_data: dict
-            if isinstance(lead_data, dict):
-                score = lead_data.get("score")
-                age = lead_data.get("age")
-                reasoning = lead_data.get("reasoning")
-                
+            # Expected company_data: dict
+            if isinstance(company_data, dict):
                 row = [
-                    lead_data.get("name"),
-                    lead_data.get("website"),
-                    lead_data.get("email"),
-                    lead_data.get("linkedin"),
-                    score,
-                    age,
-                    reasoning
+                    company_data.get('name', 'N/A'),
+                    company_data.get('website', 'N/A'),
+                    company_data.get('email', 'N/A'), # Using 'email' key from hunter.py, user snippet had 'emails' list join logic but hunter passes string
+                    company_data.get('phone', 'N/A'),
+                    company_data.get('linkedin', 'N/A'),
+                    company_data.get('instagram', 'N/A'),
+                    company_data.get('facebook', 'N/A'),
+                    company_data.get('score', 'Pending'),
+                    company_data.get('decision', 'Pending'),
+                    company_data.get('reasoning', 'Pending AI Review') # 'reasoning' maps to 'Summary' in sheet
                 ]
             else:
-                row = lead_data
+                row = company_data
             
             self.sheet.append_row(row)
             print(f"✅ Successfully saved to GSheets: {row[0]}")
@@ -130,3 +129,53 @@ class GSheetsHandler:
             if "PERMISSION_DENIED" in str(e).upper():
                 print("💡 TIP: Ensure the sheet is SHARED with the service account email.")
             return False
+
+    def get_existing_leads(self):
+        """
+        Returns a set of all websites already in the sheet.
+        Using a 'set' makes the check nearly instant.
+        """
+        if not self.sheet:
+            self.connect()
+            
+        try:
+            # Get all values from the 'Website' column (Column B is index 2)
+            existing_urls = self.sheet.col_values(2)
+            # Filter out empty or header values if necessary, though set handles duplicates
+            return set(url.strip() for url in existing_urls if url.strip() and url != "Website")
+        except Exception as e:
+            print(f"⚠️ Could not load history: {e}")
+            return set()
+
+    def get_finished_missions(self):
+        """Returns a set of all search queries already completed."""
+        if not self.client:
+            self.connect()
+
+        try:
+            # Open the specific 'Mission_Progress' tab
+            mission_sheet = self.client.open_by_key(self.sheet_id).worksheet("Mission_Progress")
+            return set(mission_sheet.col_values(1))
+        except Exception:
+            # If the tab doesn't exist yet, return an empty set
+            return set()
+
+    def mark_mission_complete(self, query):
+        """Saves the completed query so we never search it again."""
+        if not self.client:
+            self.connect()
+            
+        try:
+            spreadsheet = self.client.open_by_key(self.sheet_id)
+            try:
+                mission_sheet = spreadsheet.worksheet("Mission_Progress")
+            except:
+                # Create if it doesn't exist
+                print("🆕 Creating 'Mission_Progress' tab...")
+                mission_sheet = spreadsheet.add_worksheet(title="Mission_Progress", rows=1000, cols=2)
+                mission_sheet.append_row(["Completed_Queries"])
+            
+            mission_sheet.append_row([query])
+            print(f"🏁 Mission Archived: {query}")
+        except Exception as e:
+            print(f"⚠️ Could not archive mission: {e}")

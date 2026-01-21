@@ -178,22 +178,41 @@ if st.session_state.get("hunting"):
 if st.session_state.get("results"):
     results = st.session_state.results
     if results:
-        # Simple table display without Pandas
+        # Show a summary table
+        st.write("### 🔎 Scan Results")
         st.table(results)
         
         # Stats
-        qualified_count = len([r for r in results if r.get('score', 0) > 70])
+        # Handle cases where score might be 'Pending' string
+        numeric_scores = [r.get('score', 0) for r in results if isinstance(r.get('score'), (int, float))]
+        qualified_count = len([s for s in numeric_scores if s > 70])
         st.metric("Qualified Leads Found", qualified_count)
         
-        # Simple Download (Manual CSV creation)
-        csv_header = "name,website,email,score,reasoning\n"
-        csv_rows = [f"{r['name']},{r['website']},{r['email']},{r['score']},\"{r['reasoning']}\"" for r in results]
+        # CSV Export with ALL columns
+        headers = ["name", "website", "email", "phone", "linkedin", "instagram", "facebook", "score", "reasoning"]
+        csv_header = ",".join(headers) + "\n"
+        
+        csv_rows = []
+        for r in results:
+            row = [
+                str(r.get("name", "N/A")).replace(",", ""),
+                str(r.get("website", "N/A")),
+                str(r.get("email", "N/A")),
+                str(r.get("phone", "N/A")),
+                str(r.get("linkedin", "N/A")),
+                str(r.get("instagram", "N/A")),
+                str(r.get("facebook", "N/A")),
+                str(r.get("score", "N/A")),
+                f"\"{str(r.get('reasoning', 'N/A')).replace('\"', '\'')}\""
+            ]
+            csv_rows.append(",".join(row))
+            
         csv_data = csv_header + "\n".join(csv_rows)
         
         st.download_button(
-            "📥 Download Intel Report (CSV)",
+            "📥 Download Full Intel Report (CSV)",
             csv_data,
-            f"leads_{target_keyword.replace(' ', '_')}.csv",
+            f"leads_export_{int(time.time())}.csv",
             "text/csv",
             key='download-csv'
         )
