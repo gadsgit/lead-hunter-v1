@@ -454,7 +454,7 @@ class LeadHunter:
         except:
             return 50, "Neutral", "LinkedIn", "AI Score Failed"
 
-    async def run_mission(self, keyword=None, update_callback=None):
+    async def run_mission(self, keyword=None, update_callback=None, progress_callback=None):
         target_keyword = keyword if keyword else self.keyword
         if not target_keyword:
             print("❌ No keyword provided for mission.")
@@ -464,83 +464,96 @@ class LeadHunter:
         print("Loading mission history...")
         existing_websites = self.gsheets.get_existing_leads()
 
+        # Step 1: Get list of leads from Google Maps
+        if update_callback: update_callback(f"Scanning Google Maps for: {target_keyword}...")
+        
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
-
-            # 1. Search Google Maps
-            original_keyword = self.keyword
-            self.keyword = target_keyword 
-            
-            if update_callback: update_callback(f"Starting Mission: {self.keyword}")
-            
             try:
                 basic_companies = await self.scrape_google_maps(page)
             finally:
-                self.keyword = original_keyword 
+                await browser.close()
 
-            # Phase 1: Heavy Browser Work (Scraping all leads details)
-            leads_to_process = []
-            for basic_info in basic_companies:
-                if basic_info.get("website") in existing_websites:
-                    continue
-                
-                if update_callback: update_callback(f"Scraping details for {basic_info['name']}...")
-                
-                company = basic_info.copy()
-                website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
-                
-                company["email"] = ", ".join(emails) if emails else "N/A"
-                company["phone"] = phone
-                company.update(socials)
-                
-                if company.get("linkedin") == "N/A":
-                     found_li = await self.search_linkedin(page, company["name"])
-                     if found_li != "N/A":
-                         company["linkedin"] = found_li
-                
-                # Store truncated content for AI to save RAM
-                leads_to_process.append({
-                    "data": company,
-                    "content": website_content[:3000]
-                })
+        # Step 2: Atomic Scraping (One Browser Session per Lead)
+        leads_to_process = []
+        count = 0
+        total = len(basic_companies)
+        
+        for basic_info in basic_companies:
+            count += 1
+            if basic_info.get("website") in existing_websites:
+                if update_callback: update_callback(f"Skipping {basic_info['name']} (Duplicate)")
+                continue
 
-            # CRITICAL: Close browser BEFORE AI processing to free up ~300MB RAM
-            await browser.close()
+            if update_callback: update_callback(f"Scouting Lead {count}/{total}: {basic_info['name']}")
+            if progress_callback: progress_callback(count / total * 0.5) # First half is scouting
+
+            # ATOMIC SESSION
+            async with async_playwright() as p:
+                browser, page = await self.get_browser_and_page(p)
+                try:
+                    company = basic_info.copy()
+                    website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
+                    
+                    company["email"] = ", ".join(emails) if emails else "N/A"
+                    company["phone"] = phone
+                    company.update(socials)
+                    
+                    if company.get("linkedin") == "N/A":
+                        found_li = await self.search_linkedin(page, company["name"])
+                        if found_li != "N/A":
+                            company["linkedin"] = found_li
+                    
+                    leads_to_process.append({
+                        "data": company,
+                        "content": website_content[:3000]
+                    })
+                except Exception as e:
+                    print(f"Scouting Error for {basic_info['name']}: {e}")
+                finally:
+                    await browser.close() # ENSURE BROWSER CLOSES EVERY TIME
+
+        # Step 3: AI Thinking & Saving (Browser is already closed here)
+        final_leads = []
+        process_count = 0
+        total_to_process = len(leads_to_process)
+        
+        for item in leads_to_process:
+            process_count += 1
+            company = item["data"]
+            content = item["content"]
             
-            # Phase 2: AI Thinking & Saving
-            final_leads = []
-            for item in leads_to_process:
-                company = item["data"]
-                content = item["content"]
-                
-                if update_callback: update_callback(f"AI Analyzing {company['name']}...")
-                
-                score, decision, age, summary = await self.score_lead_ai(company["name"], content)
-                company["score"] = score
-                company["decision"] = decision
-                company["age"] = age
-                company["summary"] = summary
+            if update_callback: update_callback(f"AI Analyzing {company['name']} ({process_count}/{total_to_process})...")
+            if progress_callback: 
+                progress_callback(0.5 + (process_count / total_to_process * 0.5))
 
-                if update_callback: update_callback(f"Saving {company['name']} to GSheets...")
-                self.gsheets.append_lead(company, query=target_keyword)
+            score, decision, age, summary = await self.score_lead_ai(company["name"], content)
+            company["score"] = score
+            company["decision"] = decision
+            company["age"] = age
+            company["summary"] = summary
 
-                summary_lead = {
-                    "keyword": target_keyword,
-                    "name": company["name"],
-                    "website": company["website"],
-                    "email": company["email"],
-                    "score": company["score"],
-                    "decision": company.get("decision", "N/A"),
-                    "summary": company["summary"][:100] + "..." 
-                }
-                final_leads.append(summary_lead)
-                
-                # GC
-                company = None
-                content = None
+            if update_callback: update_callback(f"Syncing {company['name']} to GSheets...")
+            self.gsheets.save_lead(company, query=target_keyword, source="google")
 
-            if update_callback: update_callback(f"Mission Complete: {target_keyword}")
-            return final_leads
+            summary_lead = {
+                "keyword": target_keyword,
+                "name": company["name"],
+                "website": company["website"],
+                "email": company["email"],
+                "score": company["score"],
+                "decision": company.get("decision", "N/A"),
+                "summary": company["summary"][:100] + "..." 
+            }
+            final_leads.append(summary_lead)
+            
+            # GC
+            item = None
+            company = None
+            content = None
+
+        if update_callback: update_callback(f"Mission Complete: {target_keyword}")
+        return final_leads
 
     async def run_linkedin_mission(self, keyword=None, update_callback=None):
         target_keyword = keyword if keyword else self.keyword
@@ -591,6 +604,11 @@ class LeadHunter:
         
         for query in targets:
             # 2. CHECKPOINT: Skip if already in the Mission_Progress tab
+            # We don't skip if the user force-triggered it from sidebar, but this is the CLI loop
+            if query in finished:
+                print(f"Skipping Mission '{query}' - Already completed.")
+                continue
+            # 2. CHECKPOINT: Skip if already in the Mission_Progress tab
             if query in finished:
                 print(f"Skipping Mission '{query}' - Already completed.")
                 continue
@@ -603,7 +621,7 @@ class LeadHunter:
             # 4. MARK AS DONE
             self.gsheets.mark_mission_complete(query)
 
-    async def run_automated_mission(self, dork_query, source="linkedin", update_callback=None):
+    async def run_automated_mission(self, dork_query, source="linkedin", update_callback=None, progress_callback=None):
         """
         Executes a mission using a SPECIFIC dork from the sidebar toolkit.
         Scrape → Analyze → Save logic to ensure 0 'Pending' results.
@@ -655,8 +673,10 @@ class LeadHunter:
             await browser.close()
             
             final_leads = []
-            for profile in profiles:
+            for i, profile in enumerate(profiles):
                 if update_callback: update_callback(f"AI Analyzing: {profile['name']}")
+                if progress_callback:
+                    progress_callback((i + 1) / len(profiles))
                 
                 # Analyze snippet
                 score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["snippet"])

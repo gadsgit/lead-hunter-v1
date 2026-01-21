@@ -196,18 +196,35 @@ if st.session_state.get("hunting"):
     hunter = LeadHunter(target_keyword, limit=scrape_limit)
     
     with st.spinner(f"Hunter active: {mode.upper()} mode..."):
+        # Universal Progress UI
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        def update_progress(val):
+            progress_bar.progress(val)
+            status_text.text(f"📡 Progress: {int(val*100)}%")
+
         try:
             if mode == "google":
-                results = asyncio.run(hunter.run_mission(update_callback=log_message_g if 'log_message_g' in locals() else st.write))
+                results = asyncio.run(hunter.run_mission(
+                    update_callback=log_message_g, 
+                    progress_callback=update_progress
+                ))
                 st.session_state.results_g = results
             elif mode == "linkedin":
                 li_kw = st.session_state.get("li_kw", target_keyword)
-                results = asyncio.run(hunter.run_linkedin_mission(keyword=li_kw, update_callback=log_message_l if 'log_message_l' in locals() else st.write))
+                results = asyncio.run(hunter.run_linkedin_mission(
+                    keyword=li_kw, 
+                    update_callback=log_message_l
+                ))
                 st.session_state.results_l = results
             elif mode == "smart":
                 source = hunter.detect_source(target_keyword)
                 callback = log_message_l if source == "linkedin" else log_message_g
-                results = asyncio.run(hunter.run_smart_mission(target_keyword, update_callback=callback))
+                results = asyncio.run(hunter.run_smart_mission(
+                    target_keyword, 
+                    update_callback=callback
+                ))
                 if source == "linkedin":
                     st.session_state.results_l = results
                 else:
@@ -216,11 +233,20 @@ if st.session_state.get("hunting"):
                 query = st.session_state.get("automated_query")
                 source = st.session_state.get("automated_source", "linkedin")
                 callback = log_message_l if source == "linkedin" else log_message_g
-                results = asyncio.run(hunter.run_automated_mission(query, source=source, update_callback=callback))
+                
+                results = asyncio.run(hunter.run_automated_mission(
+                    query, 
+                    source=source, 
+                    update_callback=callback,
+                    progress_callback=update_progress
+                ))
+                
                 if source == "linkedin":
                     st.session_state.results_l = results
                 else:
                     st.session_state.results_g = results
+                
+                st.balloons()
             
             st.session_state.hunting = False
             st.success("Mission Complete!")
