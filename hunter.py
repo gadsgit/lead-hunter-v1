@@ -300,63 +300,145 @@ class LeadHunter:
         print("Loading mission history...")
         existing_websites = self.gsheets.get_existing_leads()
 
-        async with async_playwright() as p:
-            # Tell Python to look in the persistent Render folder
-            render_browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/project/playwright")
-            executable_path = None
+    async def get_browser_and_page(self, p):
+        # Tell Python to look in the persistent Render folder
+        render_browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/project/playwright")
+        executable_path = None
+        
+        if os.path.exists(render_browser_path):
+            # Search for the executable because the specific subfolder (e.g. chromium-1200) can vary
+            matches = glob.glob(os.path.join(render_browser_path, "**/chrome-headless-shell"), recursive=True)
+            if not matches:
+                matches = glob.glob(os.path.join(render_browser_path, "**/chrome"), recursive=True)
             
-            if os.path.exists(render_browser_path):
-                print(f"Seeking browser in persistent path: {render_browser_path}")
-                # Search for the executable because the specific subfolder (e.g. chromium-1200) can vary
-                matches = glob.glob(os.path.join(render_browser_path, "**/chrome-headless-shell"), recursive=True)
-                if not matches:
-                    matches = glob.glob(os.path.join(render_browser_path, "**/chrome"), recursive=True)
+            if matches:
+                executable_path = matches[0]
+
+        # Launch browser with "Slim" settings
+        launch_kwargs = {
+            "headless": True,
+            "args": [
+                "--no-sandbox", 
+                "--disable-setuid-sandbox", 
+                "--disable-dev-shm-usage", 
+                "--disable-gpu",
+                "--single-process"
+            ]
+        }
+        if executable_path:
+            launch_kwargs["executable_path"] = executable_path
+        
+        try:
+            browser = await p.chromium.launch(**launch_kwargs)
+        except Exception as e:
+            # Use repr to avoid encoding issues with the error message
+            print(f"Launch Error with custom path: {repr(e)}")
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        
+        context = await browser.new_context()
+        page = await context.new_page()
+
+        # AGGRESSIVE MEDIA BLOCKING
+        await page.route("**/*", lambda route: 
+            route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
+            else route.continue_()
+        )
+        return browser, page
+
+    async def scrape_linkedin_profiles(self, page, keyword):
+        print(f"Hijacking Google for LinkedIn profiles: {keyword}")
+        search_query = f'"{keyword}" site:linkedin.com/in/'
+        try:
+            await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}", wait_until="networkidle")
+        except:
+            await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}")
+        
+        await self.sleep_random(3, 5)
+
+        results = []
+        links = await page.query_selector_all('a')
+        
+        processed_urls = set()
+        for link in links:
+            if len(results) >= self.limit:
+                break
+            
+            href = await link.get_attribute('href')
+            if href and "linkedin.com/in/" in href:
+                # Clean Google redirect
+                if "/url?q=" in href:
+                    match = re.search(r'url\?q=([^&]*)', href)
+                    if match:
+                        href = match.group(1)
                 
-                if matches:
-                    executable_path = matches[0]
-                    print(f"Found browser executable at: {executable_path}")
+                clean_url = href.split('&')[0].split('?')[0]
+                if clean_url in processed_urls:
+                    continue
+                
+                processed_urls.add(clean_url)
+                
+                # Try to get the name from the heading
+                try:
+                    parent = await page.evaluate_handle('el => el.closest("div")', link)
+                    h3 = await parent.as_element().query_selector('h3')
+                    name = await h3.inner_text() if h3 else "LinkedIn User"
+                except:
+                    name = "LinkedIn User"
+                
+                results.append({"name": name, "url": clean_url})
+                print(f"  + Scraped LinkedIn: {name} ({clean_url})")
 
-            # Launch browser with "Slim" settings
-            launch_kwargs = {
-                "headless": True,
-                "args": [
-                    "--no-sandbox", 
-                    "--disable-setuid-sandbox", 
-                    "--disable-dev-shm-usage", 
-                    "--disable-gpu",
-                    "--single-process"
-                ]
-            }
-            if executable_path:
-                launch_kwargs["executable_path"] = executable_path
-            
-            try:
-                browser = await p.chromium.launch(**launch_kwargs)
-            except Exception as e:
-                # Use repr to avoid encoding issues with the error message
-                print(f"Launch Error with custom path: {repr(e)}")
-                browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            
-            context = await browser.new_context()
-            page = await context.new_page()
+        return results
 
-            # AGGRESSIVE MEDIA BLOCKING
-            await page.route("**/*", lambda route: 
-                route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
-                else route.continue_()
-            )
+    async def score_linkedin_ai(self, profile_name, snippet_text):
+        if not self.model:
+            return "Pending", "Pending", "Pending", "Pending AI Review"
+
+        prompt = f"""
+        Analyze this LinkedIn profile snippet for '{profile_name}'.
+        Snippet: {snippet_text}
+        
+        Goal: Score (0-100) based on relevance to a 'High Ticket B2B' target.
+        Return exactly in this JSON format:
+        {{
+            "score": <integer>,
+            "decision": "<Qualified/Neutral/Not Qualified>",
+            "summary": "<1-sentence summary of their role>"
+        }}
+        """
+        try:
+            response = self.model.generate_content(prompt)
+            clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            start = clean_text.find('{')
+            end = clean_text.rfind('}') + 1
+            data = json.loads(clean_text[start:end])
+            return data.get("score", 50), data.get("decision", "Neutral"), "LinkedIn", data.get("summary", "Analyzed Profile")
+        except:
+            return 50, "Neutral", "LinkedIn", "AI Score Failed"
+
+    async def run_mission(self, keyword=None, update_callback=None):
+        target_keyword = keyword if keyword else self.keyword
+        if not target_keyword:
+            print("❌ No keyword provided for mission.")
+            return []
+
+        # 0. Checkpoint: Load History
+        print("Loading mission history...")
+        existing_websites = self.gsheets.get_existing_leads()
+
+        async with async_playwright() as p:
+            browser, page = await self.get_browser_and_page(p)
 
             # 1. Search Google Maps
-            # Temporarily set self.keyword for scrape_google_maps or pass it
             original_keyword = self.keyword
-            self.keyword = target_keyword # Update internal state for scrape_google_maps
+            self.keyword = target_keyword 
             
             if update_callback: update_callback(f"Starting Mission: {self.keyword}")
             
             try:
                 basic_companies = await self.scrape_google_maps(page)
             finally:
-                self.keyword = original_keyword # Restore
+                self.keyword = original_keyword 
 
             final_leads = []
 
@@ -429,6 +511,45 @@ class LeadHunter:
 
             await browser.close()
             if update_callback: update_callback(f"Mission Complete: {target_keyword}")
+            return final_leads
+
+    async def run_linkedin_mission(self, keyword=None, update_callback=None):
+        target_keyword = keyword if keyword else self.keyword
+        if not target_keyword:
+            return []
+
+        async with async_playwright() as p:
+            browser, page = await self.get_browser_and_page(p)
+            
+            if update_callback: update_callback(f"Starting LinkedIn Hijack: {target_keyword}")
+            
+            profiles = await self.scrape_linkedin_profiles(page, target_keyword)
+            final_leads = []
+
+            for profile in profiles:
+                if update_callback: update_callback(f"Analyzing Profile: {profile['name']}...")
+                
+                # Get a quick snippet from the Google result if possible (already in 'name' or we can add 'snippet')
+                # For now, we'll just score based on the name/title found in the search result
+                score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["url"])
+                
+                lead = {
+                    "name": profile["name"],
+                    "url": profile["url"],
+                    "score": score,
+                    "decision": decision,
+                    "summary": summary
+                }
+
+                # Save to specific LinkedIn tab
+                self.gsheets.append_linkedin_lead(lead, target_keyword)
+                
+                final_leads.append(lead)
+                if update_callback: update_callback(f"SAVED: {profile['name']}")
+                await self.sleep_random(1, 2)
+
+            await browser.close()
+            if update_callback: update_callback(f"LinkedIn Mission Complete: {target_keyword}")
             return final_leads
 
     async def start_global_hunt(self, targets=None):

@@ -116,117 +116,93 @@ if st.sidebar.button("🚀 Launch Hunter"):
         st.session_state.auto_start_timer = time.time()
 
 # Main UI Area
-col1, col2 = st.columns([1, 2])
+tab_google, tab_linkedin = st.tabs(["📍 Google Maps Leads", "💼 LinkedIn Leads"])
 
-with col1:
-    st.subheader("📡 Live Intelligence Feed")
-    log_area = st.empty()
-    
-    # Updated log feed logic per user request
-    def log_message(msg):
-        if 'logs' not in st.session_state:
-            st.session_state.logs = []
-        st.session_state.logs.append(msg)
-        # Display the last 10 lines in a code block
-        display_text = "\n".join(st.session_state.logs[-10:])
-        log_area.code(display_text)
+with tab_google:
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("📡 Google Intelligence Feed")
+        log_area_g = st.empty()
         
-        # If a debug screenshot exists, show it (optional sidebar update)
-        if os.path.exists("debug_search.png"):
-            st.sidebar.image("debug_search.png", caption="Last Browser View")
+        def log_message_g(msg):
+            if 'logs_g' not in st.session_state: st.session_state.logs_g = []
+            st.session_state.logs_g.append(msg)
+            log_area_g.code("\n".join(st.session_state.logs_g[-10:]))
 
-with col2:
-    st.subheader("🎯 Qualified Lead Repository")
-    results_area = st.empty()
-
-async def run_hunter():
-    hunter = LeadHunter(target_keyword, limit=scrape_limit)
-    leads = await hunter.run_mission(update_callback=log_message)
-    return leads
-
-
-# --- Main Hunter Loop ---
-if st.session_state.get("hunting"):
-    if not st.session_state.run_status:
-        st.info("System is idle. No credits being used.")
-    else:
-        st.session_state.results = []
-        with st.spinner("Hunter is scanning the field..."):
-            try:
-                # We initialize the hunter here so we can call it
-                hunter_instance = LeadHunter(target_keyword, limit=scrape_limit)
-                
-                # We use a custom callback that logs and writes to screen
-                def streamlit_callback(msg):
-                    log_message(msg)
-                    st.write(msg)
-                
-                # Run the mission
-                results = asyncio.run(hunter_instance.run_mission(update_callback=streamlit_callback))
-                
-                if results:
-                    st.session_state.results = results
-                    st.session_state.hunting = False
-                    st.success(f"🎯 Mission Complete! Found {len(results)} leads.")
-                else:
-                    st.session_state.hunting = False
-                    st.warning("No leads found. Check Render logs for 'Robot Check' or 'Consent Screen' blocks.")
-            except Exception as e:
-                st.error(f"Mission Failed: {e}")
-                st.session_state.hunting = False
-
-if st.session_state.get("results"):
-    results = st.session_state.results
-    if results:
-        # Show a summary table
-        st.write("### 🔎 Scan Results")
-        st.table(results)
-        
-        # Stats
-        # Handle cases where score might be 'Pending' string
-        numeric_scores = [r.get('score', 0) for r in results if isinstance(r.get('score'), (int, float))]
-        qualified_count = len([s for s in numeric_scores if s > 70])
-        st.metric("Qualified Leads Found", qualified_count)
-        
-        # CSV Export with ALL columns
-        headers = ["keyword", "name", "website", "email", "phone", "linkedin", "instagram", "facebook", "score", "decision", "summary"]
-        csv_header = ",".join(headers) + "\n"
-        
-        csv_rows = []
-        for r in results:
-            summary_text = str(r.get('summary', 'N/A')).replace('"', "'")
-            row = [
-                str(r.get("keyword", "N/A")).replace(",", ""),
-                str(r.get("name", "N/A")).replace(",", ""),
-                str(r.get("website", "N/A")),
-                str(r.get("email", "N/A")),
-                str(r.get("phone", "N/A")),
-                str(r.get("linkedin", "N/A")),
-                str(r.get("instagram", "N/A")),
-                str(r.get("facebook", "N/A")),
-                str(r.get("score", "N/A")),
-                str(r.get("decision", "N/A")),
-                f'"{summary_text}"'
-            ]
-            csv_rows.append(",".join(row))
+    with col2:
+        st.subheader("🎯 Google Lead Repository")
+        if st.session_state.get("results_g"):
+            results = st.session_state.results_g
+            st.table(results)
             
-        csv_data = csv_header + "\n".join(csv_rows)
+            # Stats
+            numeric_scores = [r.get('score', 0) for r in results if isinstance(r.get('score'), (int, float))]
+            qualified_count = len([s for s in numeric_scores if s > 70])
+            st.metric("Qualified Leads Found", qualified_count)
+            
+            # CSV Export
+            headers = ["keyword", "name", "website", "email", "phone", "linkedin", "instagram", "facebook", "score", "decision", "summary"]
+            csv_header = ",".join(headers) + "\n"
+            csv_rows = []
+            for r in results:
+                summary_text = str(r.get('summary', 'N/A')).replace('"', "'")
+                row = [str(r.get(h, "N/A")).replace(",", "") for h in headers[:-1]] + [f'"{summary_text}"']
+                csv_rows.append(",".join(row))
+            
+            st.download_button("📥 Download Google Leads (CSV)", csv_header + "\n".join(csv_rows), f"google_leads_{int(time.time())}.csv", "text/csv")
+
+    if st.button("🚀 Launch Google Hunter", key="run_google"):
+        st.session_state.results_g = []
+        st.session_state.logs_g = []
+        with st.spinner("Scanning Google Maps..."):
+            hunter = LeadHunter(target_keyword, limit=scrape_limit)
+            results = asyncio.run(hunter.run_mission(update_callback=log_message_g))
+            st.session_state.results_g = results
+            st.rerun()
+
+with tab_linkedin:
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("📡 LinkedIn Intelligence Feed")
+        log_area_l = st.empty()
         
-        st.download_button(
-            "📥 Download Full Intel Report (CSV)",
-            csv_data,
-            f"leads_export_{int(time.time())}.csv",
-            "text/csv",
-            key='download-csv'
-        )
-    else:
-        results_area.info("No leads found yet.")
+        def log_message_l(msg):
+            if 'logs_l' not in st.session_state: st.session_state.logs_l = []
+            st.session_state.logs_l.append(msg)
+            log_area_l.code("\n".join(st.session_state.logs_l[-10:]))
+
+    with col2:
+        st.subheader("🎯 LinkedIn Lead Repository")
+        if st.session_state.get("results_l"):
+            results = st.session_state.results_l
+            st.table(results)
+            
+            # CSV Export
+            headers = ["keyword", "name", "url", "score", "decision", "summary"]
+            csv_header = ",".join(headers) + "\n"
+            csv_rows = []
+            for r in results:
+                summary_text = str(r.get('summary', 'N/A')).replace('"', "'")
+                row = [str(r.get(h, "N/A")).replace(",", "") for h in headers[:-1]] + [f'"{summary_text}"']
+                csv_rows.append(",".join(row))
+            
+            st.download_button("📥 Download LinkedIn Leads (CSV)", csv_header + "\n".join(csv_rows), f"linkedin_leads_{int(time.time())}.csv", "text/csv")
+
+    li_keyword = st.text_input("LinkedIn Search Keyword", value="CEO Real Estate Miami", key="li_kw")
+    if st.button("💼 Launch LinkedIn Hijack", key="run_linkedin"):
+        st.session_state.results_l = []
+        st.session_state.logs_l = []
+        with st.spinner("Hijacking Google for LinkedIn Profiles..."):
+            hunter = LeadHunter(limit=scrape_limit)
+            results = asyncio.run(hunter.run_linkedin_mission(keyword=li_keyword, update_callback=log_message_l))
+            st.session_state.results_l = results
+            st.rerun()
 
 st.markdown("---")
 st.markdown("### 🛠️ Strategic Setup")
 with st.expander("Detailed Instructions"):
     st.markdown("""
-    1. **Google Sheets**: Ensure `google-credentials.json` is in the root and the Sheet is shared with the service account email.
-    2. **Gemini AI**: Add your API key to `.env` to enable the 'Smart Filter' logic.
-    3. **Strategy**: The Hunter saves leads with Score > 70 to GSheets. Use **Rows.com** to import this sheet and perform deep email discovery on the top 10% of leads.
+    1. **Google Sheets**: Data is saved to 'Sheet1' (Google) and 'LinkedIn Leads' (LinkedIn) tabs.
+    2. **LinkedIn Strategy**: Uses Google search hijacking to find profiles without logging in.
+    3. **Strategy**: Google leads are local businesses; LinkedIn leads are high-ticket decision makers.
     """)

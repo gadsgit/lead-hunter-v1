@@ -30,6 +30,7 @@ class GSheetsHandler:
 
         self.client = None
         self.sheet = None
+        self.spreadsheet = None
 
     def connect(self):
         try:
@@ -72,6 +73,7 @@ class GSheetsHandler:
                     else:
                         self.sheet = spreadsheet.get_worksheet(0)
                         
+                    self.spreadsheet = spreadsheet
                     print(f"Sheet '{self.sheet.title}' opened successfully.")
                 except Exception as e:
                     print(f"Failed to open spreadsheet by ID: {e}")
@@ -79,7 +81,8 @@ class GSheetsHandler:
             else:
                 try:
                     print("No GOOGLE_SHEET_ID found. Attempting to open by name: 'Lead Hunter Results'")
-                    self.sheet = self.client.open("Lead Hunter Results").get_worksheet(0)
+                    self.spreadsheet = self.client.open("Lead Hunter Results")
+                    self.sheet = self.spreadsheet.get_worksheet(0)
                     print(f"Found sheet by name: {self.sheet.title}")
                 except Exception as e:
                     print(f"Failed to open 'Lead Hunter Results': {e}")
@@ -129,6 +132,36 @@ class GSheetsHandler:
             print(f"GSheets Error Detail: {str(e)}")
             if "PERMISSION_DENIED" in str(e).upper():
                 print("TIP: Ensure the sheet is SHARED with the service account email.")
+            return False
+
+    def get_linkedin_sheet(self):
+        """Finds or creates the LinkedIn Leads tab."""
+        if not self.spreadsheet:
+            self.connect()
+        try:
+            return self.spreadsheet.worksheet("LinkedIn Leads")
+        except gspread.exceptions.WorksheetNotFound:
+            # Create sheet if missing
+            headers = ["Keyword", "Name", "LinkedIn URL", "Summary", "Decision"]
+            new_sheet = self.spreadsheet.add_worksheet(title="LinkedIn Leads", rows="1000", cols="20")
+            new_sheet.append_row(headers)
+            return new_sheet
+
+    def append_linkedin_lead(self, data, query):
+        try:
+            sheet = self.get_linkedin_sheet()
+            row = [
+                query,
+                data.get('name', 'N/A'),
+                data.get('url', 'N/A'),
+                data.get('summary', 'N/A'),
+                data.get('decision', 'N/A')
+            ]
+            sheet.append_row(row)
+            print(f"Successfully saved LinkedIn lead: {data.get('name')}")
+            return True
+        except Exception as e:
+            print(f"LinkedIn Save Error: {e}")
             return False
 
     def get_existing_leads(self):
