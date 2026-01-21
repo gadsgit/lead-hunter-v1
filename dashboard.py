@@ -106,28 +106,87 @@ if not st.session_state.hunting and st.session_state.run_status:
             st.error("Cannot launch without Google Credentials.")
 
 # Manual sidebar launch still works
-if st.sidebar.button("🚀 Launch Hunter"):
+col_g, col_li, col_smart = st.sidebar.columns(3)
+with col_g:
+    if st.button("📍 Google"):
+        st.session_state.hunting_mode = "google"
+        st.session_state.launch_trigger = True
+with col_li:
+    if st.button("💼 LinkedIn"):
+        st.session_state.hunting_mode = "linkedin"
+        st.session_state.launch_trigger = True
+with col_smart:
+    if st.button("🧠 Smart"):
+        st.session_state.hunting_mode = "smart"
+        st.session_state.launch_trigger = True
+
+# Deployment logic for triggers
+if st.session_state.get("launch_trigger"):
+    st.session_state.launch_trigger = False
     if not creds_exists:
         st.error("Cannot launch without Google Credentials.")
     else:
         st.session_state.hunting = True
-        st.session_state.logs = []
-        st.session_state.results = []
+        st.session_state.logs_g = []
+        st.session_state.results_g = []
+        st.session_state.logs_l = []
+        st.session_state.results_l = []
         st.session_state.auto_start_timer = time.time()
 
-# Main UI Area
+# --- Logging Utilities ---
+log_container_g = st.sidebar.empty()
+log_container_l = st.sidebar.empty()
+
+def log_message_g(msg):
+    if 'logs_g' not in st.session_state: st.session_state.logs_g = []
+    st.session_state.logs_g.append(msg)
+    # We will update a placeholder in the tab later, or just sidebar for now
+    print(f"[GOOGLE] {msg}")
+
+def log_message_l(msg):
+    if 'logs_l' not in st.session_state: st.session_state.logs_l = []
+    st.session_state.logs_l.append(msg)
+    print(f"[LINKEDIN] {msg}")
+
+# --- Hunting Execution Block ---
+if st.session_state.get("hunting"):
+    mode = st.session_state.get("hunting_mode", "google")
+    hunter = LeadHunter(target_keyword, limit=scrape_limit)
+    
+    with st.spinner(f"Hunter active: {mode.upper()} mode..."):
+        try:
+            if mode == "google":
+                results = asyncio.run(hunter.run_mission(update_callback=log_message_g if 'log_message_g' in locals() else st.write))
+                st.session_state.results_g = results
+            elif mode == "linkedin":
+                li_kw = st.session_state.get("li_kw", target_keyword)
+                results = asyncio.run(hunter.run_linkedin_mission(keyword=li_kw, update_callback=log_message_l if 'log_message_l' in locals() else st.write))
+                st.session_state.results_l = results
+            elif mode == "smart":
+                source = hunter.detect_source(target_keyword)
+                callback = log_message_l if source == "linkedin" else log_message_g
+                results = asyncio.run(hunter.run_smart_mission(target_keyword, update_callback=callback))
+                if source == "linkedin":
+                    st.session_state.results_l = results
+                else:
+                    st.session_state.results_g = results
+            
+            st.session_state.hunting = False
+            st.success("Mission Complete!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Mission Failed: {e}")
+            st.session_state.hunting = False
 tab_google, tab_linkedin = st.tabs(["📍 Google Maps Leads", "💼 LinkedIn Leads"])
 
 with tab_google:
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("📡 Google Intelligence Feed")
-        log_area_g = st.empty()
-        
-        def log_message_g(msg):
-            if 'logs_g' not in st.session_state: st.session_state.logs_g = []
-            st.session_state.logs_g.append(msg)
-            log_area_g.code("\n".join(st.session_state.logs_g[-10:]))
+        if st.session_state.get("logs_g"):
+            st.code("\n".join(st.session_state.logs_g[-15:]))
+        else:
+            st.info("Feed idle. Awaiting mission launch.")
 
     with col2:
         st.subheader("🎯 Google Lead Repository")
@@ -152,24 +211,18 @@ with tab_google:
             st.download_button("📥 Download Google Leads (CSV)", csv_header + "\n".join(csv_rows), f"google_leads_{int(time.time())}.csv", "text/csv")
 
     if st.button("🚀 Launch Google Hunter", key="run_google"):
-        st.session_state.results_g = []
-        st.session_state.logs_g = []
-        with st.spinner("Scanning Google Maps..."):
-            hunter = LeadHunter(target_keyword, limit=scrape_limit)
-            results = asyncio.run(hunter.run_mission(update_callback=log_message_g))
-            st.session_state.results_g = results
-            st.rerun()
+        st.session_state.hunting_mode = "google"
+        st.session_state.hunting = True
+        st.rerun()
 
 with tab_linkedin:
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("📡 LinkedIn Intelligence Feed")
-        log_area_l = st.empty()
-        
-        def log_message_l(msg):
-            if 'logs_l' not in st.session_state: st.session_state.logs_l = []
-            st.session_state.logs_l.append(msg)
-            log_area_l.code("\n".join(st.session_state.logs_l[-10:]))
+        if st.session_state.get("logs_l"):
+            st.code("\n".join(st.session_state.logs_l[-15:]))
+        else:
+            st.info("Feed idle. Awaiting mission launch.")
 
     with col2:
         st.subheader("🎯 LinkedIn Lead Repository")
@@ -190,13 +243,9 @@ with tab_linkedin:
 
     li_keyword = st.text_input("LinkedIn Search Keyword", value="CEO Real Estate Miami", key="li_kw")
     if st.button("💼 Launch LinkedIn Hijack", key="run_linkedin"):
-        st.session_state.results_l = []
-        st.session_state.logs_l = []
-        with st.spinner("Hijacking Google for LinkedIn Profiles..."):
-            hunter = LeadHunter(limit=scrape_limit)
-            results = asyncio.run(hunter.run_linkedin_mission(keyword=li_keyword, update_callback=log_message_l))
-            st.session_state.results_l = results
-            st.rerun()
+        st.session_state.hunting_mode = "linkedin"
+        st.session_state.hunting = True
+        st.rerun()
 
 st.markdown("---")
 st.markdown("### 🛠️ Strategic Setup")

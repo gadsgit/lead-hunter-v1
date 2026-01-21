@@ -99,39 +99,49 @@ class GSheetsHandler:
             print(f"Error connecting to Google Sheets: {e}")
             return False
 
-    def append_lead(self, company_data, query="N/A"):
-        if not self.sheet:
-            print("Connection to sheet not established. Attempting to connect...")
-            if not self.connect():
-                print("Failed to establish connection during append_lead.")
-                return False
+    def save_lead(self, data, query, source="google"):
+        """
+        Routes data to the correct worksheet based on source.
+        source: 'google' or 'linkedin'
+        """
         try:
-            # Expected company_data: dict
-            if isinstance(company_data, dict):
+            if not self.spreadsheet:
+                self.connect()
+                
+            if source == "google":
+                # Detailed row for Google Maps leads
                 row = [
                     query,
-                    company_data.get('name', 'N/A'),
-                    company_data.get('website', 'N/A'),
-                    company_data.get('email', 'N/A'),
-                    company_data.get('phone', 'N/A'),
-                    company_data.get('linkedin', 'N/A'),
-                    company_data.get('instagram', 'N/A'),
-                    company_data.get('facebook', 'N/A'),
-                    company_data.get('score', 0),
-                    company_data.get('decision', 'N/A'),
-                    company_data.get('summary', 'N/A')
+                    data.get('name', 'N/A'),
+                    data.get('website', 'N/A'),
+                    data.get('email', 'N/A'),
+                    data.get('phone', 'N/A'),
+                    data.get('linkedin', 'N/A'),
+                    data.get('instagram', 'N/A'),
+                    data.get('facebook', 'N/A'),
+                    data.get('score', 0),
+                    data.get('decision', 'N/A'),
+                    data.get('summary', 'N/A')
                 ]
+                # Targeting the main sheet (usually Sheet1)
+                self.sheet.append_row(row)
+                print(f"✅ Google Lead saved: {data.get('name')}")
             else:
-                row = company_data
-            
-            self.sheet.append_row(row)
-            print(f"Successfully saved lead from search: {query}")
+                # Optimized row for LinkedIn leads
+                sheet = self.get_linkedin_sheet()
+                row = [
+                    query,
+                    data.get('name', 'N/A'),
+                    data.get('url', 'N/A'),
+                    data.get('score', 0),
+                    data.get('summary', 'N/A'),
+                    data.get('decision', 'N/A')
+                ]
+                sheet.append_row(row)
+                print(f"✅ LinkedIn Lead saved: {data.get('name')}")
             return True
         except Exception as e:
-            # This is the "Why" catcher requested
-            print(f"GSheets Error Detail: {str(e)}")
-            if "PERMISSION_DENIED" in str(e).upper():
-                print("TIP: Ensure the sheet is SHARED with the service account email.")
+            print(f"❌ Routing Error: {e}")
             return False
 
     def get_linkedin_sheet(self):
@@ -147,23 +157,13 @@ class GSheetsHandler:
             new_sheet.append_row(headers)
             return new_sheet
 
+    def append_lead(self, company_data, query="N/A"):
+        """Backward compatibility for existing code."""
+        return self.save_lead(company_data, query, source="google")
+
     def append_linkedin_lead(self, data, query):
-        try:
-            sheet = self.get_linkedin_sheet()
-            row = [
-                query,
-                data.get('name', 'N/A'),
-                data.get('url', 'N/A'),
-                data.get('score', 0),
-                data.get('summary', 'N/A'),
-                data.get('decision', 'N/A')
-            ]
-            sheet.append_row(row)
-            print(f"Successfully saved LinkedIn lead: {data.get('name')}")
-            return True
-        except Exception as e:
-            print(f"LinkedIn Save Error: {e}")
-            return False
+        """Backward compatibility for existing code."""
+        return self.save_lead(data, query, source="linkedin")
 
     def get_existing_leads(self):
         """

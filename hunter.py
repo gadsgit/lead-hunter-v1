@@ -580,6 +580,26 @@ class LeadHunter:
             # 4. MARK AS DONE
             self.gsheets.mark_mission_complete(query)
 
+    def detect_source(self, query):
+        """
+        Smart detection: If it looks like a person search (CEO, Founder, Manager, LinkedIn)
+        it goes to LinkedIn. Otherwise, it's Google Maps.
+        """
+        person_terms = ["ceo", "founder", "owner", "manager", "director", "head", "vp", "president", "linkedin", "profile"]
+        q_lower = query.lower()
+        if any(term in q_lower for term in person_terms):
+            return "linkedin"
+        return "google"
+
+    async def run_smart_mission(self, query, update_callback=None):
+        source = self.detect_source(query)
+        if source == "linkedin":
+            if update_callback: update_callback(f"🧠 Smart Routing: Detected LinkedIn target for '{query}'")
+            return await self.run_linkedin_mission(query, update_callback)
+        else:
+            if update_callback: update_callback(f"🧠 Smart Routing: Detected Local Business target for '{query}'")
+            return await self.run_mission(query, update_callback)
+
 if __name__ == "__main__":
     # Test run
     try:
