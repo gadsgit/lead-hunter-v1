@@ -332,7 +332,8 @@ class LeadHunter:
             try:
                 browser = await p.chromium.launch(**launch_kwargs)
             except Exception as e:
-                print(f"Launch Error with custom path: {e}")
+                # Use repr to avoid encoding issues with the error message
+                print(f"Launch Error with custom path: {repr(e)}")
                 browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             
             context = await browser.new_context()
