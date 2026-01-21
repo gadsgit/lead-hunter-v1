@@ -17,6 +17,17 @@ class GSheetsHandler:
         ]
         self.credentials_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "google-credentials.json")
         self.sheet_id = os.getenv("GOOGLE_SHEET_ID")
+        self.sheet_gid = os.getenv("GOOGLE_SHEET_GID", "0") # Default to 0 (first tab)
+        
+        # CLEANING: If the user pasted a full URL, extract the ID
+        if self.sheet_id and "docs.google.com" in self.sheet_id:
+            try:
+                # Extract ID from /d/ID_HERE/
+                self.sheet_id = self.sheet_id.split("/d/")[1].split("/")[0]
+                print(f"🧹 Cleaned Sheet ID from URL: {self.sheet_id}")
+            except Exception as e:
+                print(f"⚠️ Failed to parse URL for Sheet ID: {e}")
+
         self.client = None
         self.sheet = None
 
@@ -45,8 +56,23 @@ class GSheetsHandler:
             if self.sheet_id:
                 try:
                     print(f"📡 Opening spreadsheet by ID: {self.sheet_id}")
-                    self.sheet = self.client.open_by_key(self.sheet_id).get_worksheet(0)
-                    print("✅ Spreadsheet opened successfully.")
+                    spreadsheet = self.client.open_by_key(self.sheet_id)
+                    
+                    # Target specific GID if provided
+                    if self.sheet_gid and self.sheet_gid != "0":
+                        try:
+                            print(f"🎯 Targeting specific GID (Tab): {self.sheet_gid}")
+                            self.sheet = spreadsheet.get_worksheet_by_id(int(self.sheet_gid))
+                            if not self.sheet:
+                                print(f"⚠️ GID {self.sheet_gid} not found. Falling back to first tab.")
+                                self.sheet = spreadsheet.get_worksheet(0)
+                        except Exception as gid_err:
+                            print(f"⚠️ GID Error: {gid_err}. Using first tab.")
+                            self.sheet = spreadsheet.get_worksheet(0)
+                    else:
+                        self.sheet = spreadsheet.get_worksheet(0)
+                        
+                    print(f"✅ Sheet '{self.sheet.title}' opened successfully.")
                 except Exception as e:
                     print(f"❌ Failed to open spreadsheet by ID: {e}")
                     return False
@@ -54,6 +80,7 @@ class GSheetsHandler:
                 try:
                     print("📡 No GOOGLE_SHEET_ID found. Attempting to open by name: 'Lead Hunter Results'")
                     self.sheet = self.client.open("Lead Hunter Results").get_worksheet(0)
+                    print(f"✅ Found sheet by name: {self.sheet.title}")
                 except Exception as e:
                     print(f"❌ Failed to open 'Lead Hunter Results': {e}")
                     print("💡 TIP: Add GOOGLE_SHEET_ID to your Render Environment variables and share the sheet with the Service Account email.")
