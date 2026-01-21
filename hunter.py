@@ -287,7 +287,7 @@ class LeadHunter:
                 # Convert score to 0 if it's "Pending" for the comparison check
                 comparison_score = score if isinstance(score, (int, float)) else 0
                 
-                if comparison_score > 70:
+                if True: # Temporarily saving all leads for testing
                     if update_callback:
                         update_callback(f"✅ QUALIFIED ({score}): {company['name']}. Saving to GSheets...")
                     self.gsheets.append_lead(company)
