@@ -347,7 +347,7 @@ class LeadHunter:
         
         context = await browser.new_context(
             user_agent=random.choice(USER_AGENTS),
-            viewport={'width': 1920, 'height': 1080}
+            viewport={'width': random.randint(1280, 1440), 'height': random.randint(720, 900)}
         )
         page = await context.new_page()
         
@@ -369,7 +369,8 @@ class LeadHunter:
         except:
             await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}")
         
-        await self.sleep_random(3, 5)
+        # Jitter: Random sleep between searching and processing
+        await self.sleep_random(5, 8) 
 
         results = []
         links = await page.query_selector_all('a')
@@ -456,58 +457,52 @@ class LeadHunter:
             finally:
                 self.keyword = original_keyword 
 
-            final_leads = []
-
+            # Phase 1: Heavy Browser Work (Scraping all leads details)
+            leads_to_process = []
             for basic_info in basic_companies:
-                # CHECKPOINT: Skip if we already have this URL
                 if basic_info.get("website") in existing_websites:
-                    print(f"Skipping {basic_info['name']} (Already in Repository)")
-                    if update_callback: update_callback(f"Skipping {basic_info['name']} (Duplicate)")
                     continue
-
-                if update_callback:
-                    update_callback(f"Analyzing {basic_info['name']}...")
                 
-                # Create a fresh lead object for this individual step
+                if update_callback: update_callback(f"Scraping details for {basic_info['name']}...")
+                
                 company = basic_info.copy()
-                
-                # 2. Scrape Website and Extract Emails & Socials
-                # Heavy data (content) is only temporary here
                 website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
                 
                 company["email"] = ", ".join(emails) if emails else "N/A"
                 company["phone"] = phone
-                company.update(socials) # Adds linkedin, instagram, facebook, etc. to keys
+                company.update(socials)
                 
-                # 3. LinkedIn Search (Fallback if not found on site)
                 if company.get("linkedin") == "N/A":
                      found_li = await self.search_linkedin(page, company["name"])
                      if found_li != "N/A":
                          company["linkedin"] = found_li
                 
-                # 4. AI Scoring (Uses content, then we can discard content)
-                score, decision, age, summary = await self.score_lead_ai(company["name"], website_content)
+                # Store truncated content for AI to save RAM
+                leads_to_process.append({
+                    "data": company,
+                    "content": website_content[:3000]
+                })
+
+            # CRITICAL: Close browser BEFORE AI processing to free up ~300MB RAM
+            await browser.close()
+            
+            # Phase 2: AI Thinking & Saving
+            final_leads = []
+            for item in leads_to_process:
+                company = item["data"]
+                content = item["content"]
+                
+                if update_callback: update_callback(f"AI Analyzing {company['name']}...")
+                
+                score, decision, age, summary = await self.score_lead_ai(company["name"], content)
                 company["score"] = score
                 company["decision"] = decision
                 company["age"] = age
                 company["summary"] = summary
 
-                # 5. Storage
-                # We save immediately as requested to avoid keeping all in RAM
-                if update_callback:
-                    update_callback(f"Attempting to save {company['name']} to GSheets...")
-                
-                save_success = self.gsheets.append_lead(company, query=target_keyword)
-                
-                if save_success:
-                    if update_callback:
-                        update_callback(f"SUCCESSFULLY SAVED: {company['name']}.")
-                else:
-                    if update_callback:
-                        update_callback(f"FAILED to save to GSheets.")
+                if update_callback: update_callback(f"Saving {company['name']} to GSheets...")
+                self.gsheets.append_lead(company, query=target_keyword)
 
-                # Keep a LIGHTWEIGHT version for the UI results
-                # We don't need to keep the full website_content or reasoning if RAM is tight
                 summary_lead = {
                     "keyword": target_keyword,
                     "name": company["name"],
@@ -519,13 +514,10 @@ class LeadHunter:
                 }
                 final_leads.append(summary_lead)
                 
-                # CRITICAL: Clear heavy variables for GC
+                # GC
                 company = None
-                website_content = None
-                
-                await self.sleep_random(2, 5)
+                content = None
 
-            await browser.close()
             if update_callback: update_callback(f"Mission Complete: {target_keyword}")
             return final_leads
 
@@ -540,13 +532,14 @@ class LeadHunter:
             if update_callback: update_callback(f"Starting LinkedIn Hijack: {target_keyword}")
             
             profiles = await self.scrape_linkedin_profiles(page, target_keyword)
-            final_leads = []
+            
+            # CRITICAL: Close browser immediately after scraping profiles
+            await browser.close()
 
+            final_leads = []
             for profile in profiles:
-                if update_callback: update_callback(f"Analyzing Profile: {profile['name']}...")
+                if update_callback: update_callback(f"AI Analyzing Profile: {profile['name']}...")
                 
-                # Get a quick snippet from the Google result if possible (already in 'name' or we can add 'snippet')
-                # For now, we'll just score based on the name/title found in the search result
                 score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["url"])
                 
                 lead = {
@@ -562,9 +555,7 @@ class LeadHunter:
                 
                 final_leads.append(lead)
                 if update_callback: update_callback(f"SAVED: {profile['name']}")
-                await self.sleep_random(1, 2)
 
-            await browser.close()
             if update_callback: update_callback(f"LinkedIn Mission Complete: {target_keyword}")
             return final_leads
 
