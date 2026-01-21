@@ -4,7 +4,7 @@ import time
 import re
 import os
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth
 import glob
 import json
 from bs4 import BeautifulSoup
@@ -352,7 +352,7 @@ class LeadHunter:
         page = await context.new_page()
         
         # Apply Stealth Mode
-        await stealth_async(page)
+        await stealth(page)
 
         # AGGRESSIVE MEDIA BLOCKING
         await page.route("**/*", lambda route: 
@@ -361,13 +361,24 @@ class LeadHunter:
         )
         return browser, page
 
+    def generate_dork(self, keyword):
+        """Constructs surgical Google X-Ray dorks for LinkedIn to ensure high quality leads."""
+        # Focus on profiles (/in/) to find decision makers
+        base_dork = f'site:linkedin.com/in/ "{keyword}"'
+        
+        # Exclude common noise to save RAM and focus on real people
+        final_dork = f"{base_dork} -intitle:jobs -inurl:jobs -inurl:posts"
+        return final_dork
+
     async def scrape_linkedin_profiles(self, page, keyword):
-        print(f"Hijacking Google for LinkedIn profiles: {keyword}")
-        search_query = f'"{keyword}" site:linkedin.com/in/'
+        print(f"Executing X-Ray Hijack for: {keyword}")
+        dork = self.generate_dork(keyword)
+        search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
+        
         try:
-            await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}", wait_until="networkidle")
+            await page.goto(search_url, wait_until="networkidle")
         except:
-            await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}")
+            await page.goto(f"https://www.google.com/search?q={dork.replace(' ', '+')}")
         
         # Jitter: Random sleep between searching and processing
         await self.sleep_random(5, 8) 
@@ -394,16 +405,26 @@ class LeadHunter:
                 
                 processed_urls.add(clean_url)
                 
-                # Try to get the name from the heading
+                # Try to get the name and snippet from the result container
                 try:
-                    parent = await page.evaluate_handle('el => el.closest("div")', link)
-                    h3 = await parent.as_element().query_selector('h3')
-                    name = await h3.inner_text() if h3 else "LinkedIn User"
+                    # Google usually wraps results in a div. We find the closest wrapper.
+                    container = await page.evaluate_handle('el => el.closest(".g, .MjjYud")', link)
+                    if container:
+                        h3 = await container.as_element().query_selector('h3')
+                        name = await h3.inner_text() if h3 else "LinkedIn User"
+                        
+                        # Extract the snippet (usually a div with specific container class)
+                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M')
+                        snippet = await snippet_el.inner_text() if snippet_el else "No snippet available"
+                    else:
+                        name = "LinkedIn User"
+                        snippet = "No snippet available"
                 except:
                     name = "LinkedIn User"
+                    snippet = "No snippet available"
                 
-                results.append({"name": name, "url": clean_url})
-                print(f"  + Scraped LinkedIn: {name} ({clean_url})")
+                results.append({"name": name, "url": clean_url, "snippet": snippet})
+                print(f"  + Scraped LinkedIn: {name} (Snippet: {snippet[:50]}...)")
 
         return results
 
@@ -529,7 +550,8 @@ class LeadHunter:
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
             
-            if update_callback: update_callback(f"Starting LinkedIn Hijack: {target_keyword}")
+            dork = self.generate_dork(target_keyword)
+            if update_callback: update_callback(f"Starting X-Ray Mission Control: {target_keyword}")
             
             profiles = await self.scrape_linkedin_profiles(page, target_keyword)
             
@@ -538,9 +560,10 @@ class LeadHunter:
 
             final_leads = []
             for profile in profiles:
-                if update_callback: update_callback(f"AI Analyzing Profile: {profile['name']}...")
+                if update_callback: update_callback(f"AI Analyzing Profile Snippet: {profile['name']}...")
                 
-                score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["url"])
+                # Analyze using the SNIPPET to stay logged out / safe
+                score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["snippet"])
                 
                 lead = {
                     "name": profile["name"],
@@ -550,8 +573,8 @@ class LeadHunter:
                     "summary": summary
                 }
 
-                # Save to specific LinkedIn tab
-                self.gsheets.append_linkedin_lead(lead, target_keyword)
+                # Save to specific LinkedIn tab, passing either keyword or full dork
+                self.gsheets.append_linkedin_lead(lead, query=dork)
                 
                 final_leads.append(lead)
                 if update_callback: update_callback(f"SAVED: {profile['name']}")
