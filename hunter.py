@@ -300,15 +300,7 @@ class LeadHunter:
             print(f"AI Scoring Error: {e}")
             return 50, "Neutral", "Unknown", "AI parsing failed, using default score"
 
-    async def run_mission(self, keyword=None, update_callback=None):
-        target_keyword = keyword if keyword else self.keyword
-        if not target_keyword:
-            print("❌ No keyword provided for mission.")
-            return []
 
-        # 0. Checkpoint: Load History
-        print("Loading mission history...")
-        existing_websites = self.gsheets.get_existing_leads()
 
     async def get_browser_and_page(self, p):
         # Tell Python to look in the persistent Render folder
