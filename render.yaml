@@ -2,7 +2,7 @@ services:
   - type: web
     name: lead-hunter-thinker
     env: python
-    buildCommand: bash build.sh
+    buildCommand: "/usr/bin/env bash build.sh"
     startCommand: streamlit run dashboard.py --server.port $PORT
     envVars:
       - key: GEMINI_API_KEY
