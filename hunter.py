@@ -470,6 +470,7 @@ class LeadHunter:
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
             try:
+                # pass page object, not strings or modules
                 basic_companies = await self.scrape_google_maps(page)
             finally:
                 await browser.close()
