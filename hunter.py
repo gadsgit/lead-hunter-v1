@@ -234,14 +234,18 @@ class LeadHunter:
                     executable_path = matches[0]
                     print(f"Found browser executable at: {executable_path}")
 
-            # Launch browser with stealth settings
+            # Launch browser with stealth settings - OPTIMIZED FOR LOW RAM (RENDER 512MB)
             try:
                 launch_kwargs = {
                     "headless": True,
                     "args": [
                         "--no-sandbox", 
                         "--disable-setuid-sandbox", 
-                        "--disable-blink-features=AutomationControlled"
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-dev-shm-usage", # Use disk instead of RAM for /dev/shm
+                        "--disable-gpu",           # GPU usage consumes a lot of memory
+                        "--js-flags='--max-old-space-size=256'", # Limit V8 engine memory
+                        "--disable-extensions",
                     ]
                 }
                 if executable_path:
@@ -252,14 +256,28 @@ class LeadHunter:
                 print(f"Deployment Check: Browser launch failed. This is expected if running locally without 'playwright install'. Error: {e}")
                 # Attempt basic fallback for local dev
                 try:
-                    browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+                    browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
                 except Exception as final_e:
                     print(f"CRITICAL: Both launch attempts failed. {final_e}")
                     raise final_e
+            
+            # MEMORY OPTIMIZATION: Block images and media from loading
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
+            
+            # Use a route to block images/stylesheets/fonts to save RAM
+            async def block_aggressively(route):
+                # Block by resource type or specific extensions for max efficiency
+                if route.request.resource_type in ["image", "media", "font", "stylesheet"] or \
+                   any(ext in route.request.url.lower() for ext in [".png", ".jpg", ".jpeg", ".gif", ".svg", ".css", ".woff", ".pdf"]):
+                    await route.abort()
+                else:
+                    await route.continue_()
+            
+            await context.route("**/*", block_aggressively)
+            
             page = await context.new_page()
 
             # 1. Search Google Maps
@@ -289,8 +307,16 @@ class LeadHunter:
                 
                 if True: # Temporarily saving all leads for testing
                     if update_callback:
-                        update_callback(f"✅ QUALIFIED ({score}): {company['name']}. Saving to GSheets...")
-                    self.gsheets.append_lead(company)
+                        update_callback(f"🚀 Attempting to save {company['name']} to GSheets...")
+                    
+                    save_success = self.gsheets.append_lead(company)
+                    
+                    if save_success:
+                        if update_callback:
+                            update_callback(f"✅ SUCCESSFULLY SAVED: {company['name']} to spreadsheet.")
+                    else:
+                        if update_callback:
+                            update_callback(f"❌ FAILED to save to GSheets. Check Render logs for the specific error (Auth or Sheet ID).")
                 else:
                     status_text = f"Low Score ({score})" if comparison_score < 70 else "Pending AI Review"
                     if update_callback:
