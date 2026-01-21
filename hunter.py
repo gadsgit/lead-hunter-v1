@@ -388,18 +388,18 @@ class LeadHunter:
                          company["linkedin"] = found_li
                 
                 # 4. AI Scoring (Uses content, then we can discard content)
-                score, decision, age, reasoning = await self.score_lead_ai(company["name"], website_content)
+                score, decision, age, summary = await self.score_lead_ai(company["name"], website_content)
                 company["score"] = score
                 company["decision"] = decision
                 company["age"] = age
-                company["reasoning"] = reasoning
+                company["summary"] = summary
 
                 # 5. Storage
                 # We save immediately as requested to avoid keeping all in RAM
                 if update_callback:
                     update_callback(f"Attempting to save {company['name']} to GSheets...")
                 
-                save_success = self.gsheets.append_lead(company)
+                save_success = self.gsheets.append_lead(company, query=target_keyword)
                 
                 if save_success:
                     if update_callback:
@@ -411,11 +411,13 @@ class LeadHunter:
                 # Keep a LIGHTWEIGHT version for the UI results
                 # We don't need to keep the full website_content or reasoning if RAM is tight
                 summary_lead = {
+                    "keyword": target_keyword,
                     "name": company["name"],
                     "website": company["website"],
                     "email": company["email"],
                     "score": company["score"],
-                    "reasoning": company["reasoning"][:100] + "..." # Truncate reasoning 
+                    "decision": company.get("decision", "N/A"),
+                    "summary": company["summary"][:100] + "..." 
                 }
                 final_leads.append(summary_lead)
                 

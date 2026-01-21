@@ -88,7 +88,7 @@ class GSheetsHandler:
             
             # Initialize headers if sheet is empty
             if not self.sheet.get_all_values():
-                headers = ["Company Name", "Website", "Emails", "Phone", "LinkedIn", "Instagram", "Facebook", "Score", "Decision", "Summary"]
+                headers = ["Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", "Instagram", "Facebook", "Score", "Decision", "Summary"]
                 self.sheet.append_row(headers)
             
             return True
@@ -96,32 +96,33 @@ class GSheetsHandler:
             print(f"Error connecting to Google Sheets: {e}")
             return False
 
-    def append_lead(self, company_data):
+    def append_lead(self, company_data, query="N/A"):
         if not self.sheet:
-            print("📡 Connection to sheet not established. Attempting to connect...")
+            print("Connection to sheet not established. Attempting to connect...")
             if not self.connect():
-                print("❌ Failed to establish connection during append_lead.")
+                print("Failed to establish connection during append_lead.")
                 return False
         try:
             # Expected company_data: dict
             if isinstance(company_data, dict):
                 row = [
+                    query,
                     company_data.get('name', 'N/A'),
                     company_data.get('website', 'N/A'),
-                    company_data.get('email', 'N/A'), # Using 'email' key from hunter.py, user snippet had 'emails' list join logic but hunter passes string
+                    company_data.get('email', 'N/A'),
                     company_data.get('phone', 'N/A'),
                     company_data.get('linkedin', 'N/A'),
                     company_data.get('instagram', 'N/A'),
                     company_data.get('facebook', 'N/A'),
-                    company_data.get('score', 'Pending'),
-                    company_data.get('decision', 'Pending'),
-                    company_data.get('reasoning', 'Pending AI Review') # 'reasoning' maps to 'Summary' in sheet
+                    company_data.get('score', 0),
+                    company_data.get('decision', 'N/A'),
+                    company_data.get('summary', 'N/A')
                 ]
             else:
                 row = company_data
             
             self.sheet.append_row(row)
-            print(f"Successfully saved to GSheets: {row[0]}")
+            print(f"Successfully saved lead from search: {query}")
             return True
         except Exception as e:
             # This is the "Why" catcher requested
@@ -139,8 +140,9 @@ class GSheetsHandler:
             self.connect()
             
         try:
-            # Get all values from the 'Website' column (Column B is index 2)
-            existing_urls = self.sheet.col_values(2)
+            # Get all values from the 'Website' column (Column C is index 3)
+            # Since we added Keyword at Column A, Website moved to Column C
+            existing_urls = self.sheet.col_values(3)
             # Filter out empty or header values if necessary, though set handles duplicates
             return set(url.strip() for url in existing_urls if url.strip() and url != "Website")
         except Exception as e:
