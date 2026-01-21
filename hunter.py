@@ -12,6 +12,10 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 
 load_dotenv()
+if os.path.exists(".env.local"):
+    load_dotenv(".env.local", override=True)
+
+IS_RENDER = os.getenv("RENDER") == "true"
 
 class LeadHunter:
     def __init__(self, keyword, limit=10):
@@ -211,18 +215,16 @@ class LeadHunter:
 
     async def run_mission(self, update_callback=None):
         async with async_playwright() as p:
-            # Check if we are on Render; if so, point to the custom path
-            custom_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+            # Tell Python to look in the persistent Render folder
+            render_browser_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/project/playwright")
             executable_path = None
             
-            if custom_path:
-                print(f"Seeking browser in persistent path: {custom_path}")
-                # Look for the chromium executable in the persistent path
-                # Playwright installs them in subfolders like 'chromium-1200/chrome-linux/chrome'
-                # or 'chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell'
-                matches = glob.glob(os.path.join(custom_path, "**/chrome-headless-shell"), recursive=True)
+            if os.path.exists(render_browser_path):
+                print(f"Seeking browser in persistent path: {render_browser_path}")
+                # Search for the executable because the specific subfolder (e.g. chromium-1200) can vary
+                matches = glob.glob(os.path.join(render_browser_path, "**/chrome-headless-shell"), recursive=True)
                 if not matches:
-                    matches = glob.glob(os.path.join(custom_path, "**/chrome"), recursive=True)
+                    matches = glob.glob(os.path.join(render_browser_path, "**/chrome"), recursive=True)
                 
                 if matches:
                     executable_path = matches[0]
@@ -232,18 +234,24 @@ class LeadHunter:
             try:
                 launch_kwargs = {
                     "headless": True,
-                    "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-blink-features=AutomationControlled"]
+                    "args": [
+                        "--no-sandbox", 
+                        "--disable-setuid-sandbox", 
+                        "--disable-blink-features=AutomationControlled"
+                    ]
                 }
                 if executable_path:
                     launch_kwargs["executable_path"] = executable_path
                 
                 browser = await p.chromium.launch(**launch_kwargs)
             except Exception as e:
-                print(f"Enhanced launch failed: {e}. Attempting basic fallback...")
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox"]
-                )
+                print(f"Deployment Check: Browser launch failed. This is expected if running locally without 'playwright install'. Error: {e}")
+                # Attempt basic fallback for local dev
+                try:
+                    browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+                except Exception as final_e:
+                    print(f"CRITICAL: Both launch attempts failed. {final_e}")
+                    raise final_e
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
