@@ -7,7 +7,6 @@ from playwright.async_api import async_playwright
 import glob
 import json
 from bs4 import BeautifulSoup
-import pandas as pd
 from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -61,8 +60,7 @@ class LeadHunter:
         except:
             pass
 
-        # Check for "Google Maps can't find..."
-        await page.screenshot(path="debug_search.png")
+        # Check for Google Maps failures
         if await page.query_selector('text="Google Maps can\'t find"'):
             print(f"No results found for {self.keyword}")
             return []
@@ -234,18 +232,16 @@ class LeadHunter:
                     executable_path = matches[0]
                     print(f"Found browser executable at: {executable_path}")
 
-            # Launch browser with stealth settings - OPTIMIZED FOR LOW RAM (RENDER 512MB)
+            # Launch browser with "Slim" settings for 512MB limit
             try:
                 launch_kwargs = {
                     "headless": True,
                     "args": [
                         "--no-sandbox", 
                         "--disable-setuid-sandbox", 
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-dev-shm-usage", # Use disk instead of RAM for /dev/shm
-                        "--disable-gpu",           # GPU usage consumes a lot of memory
-                        "--js-flags='--max-old-space-size=256'", # Limit V8 engine memory
-                        "--disable-extensions",
+                        "--disable-dev-shm-usage", 
+                        "--disable-gpu",
+                        "--single-process" # Significantly reduces process overhead
                     ]
                 }
                 if executable_path:
@@ -253,81 +249,79 @@ class LeadHunter:
                 
                 browser = await p.chromium.launch(**launch_kwargs)
             except Exception as e:
-                print(f"Deployment Check: Browser launch failed. This is expected if running locally without 'playwright install'. Error: {e}")
-                # Attempt basic fallback for local dev
-                try:
-                    browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-                except Exception as final_e:
-                    print(f"CRITICAL: Both launch attempts failed. {final_e}")
-                    raise final_e
+                print(f"Launch Error: {e}")
+                browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             
-            # MEMORY OPTIMIZATION: Block images and media from loading
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 800},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            
-            # Use a route to block images/stylesheets/fonts to save RAM
-            async def block_aggressively(route):
-                # Block by resource type or specific extensions for max efficiency
-                if route.request.resource_type in ["image", "media", "font", "stylesheet"] or \
-                   any(ext in route.request.url.lower() for ext in [".png", ".jpg", ".jpeg", ".gif", ".svg", ".css", ".woff", ".pdf"]):
-                    await route.abort()
-                else:
-                    await route.continue_()
-            
-            await context.route("**/*", block_aggressively)
-            
+            context = await browser.new_context()
             page = await context.new_page()
+
+            # AGGRESSIVE MEDIA BLOCKING (The #1 RAM Saver)
+            await page.route("**/*", lambda route: 
+                route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] 
+                else route.continue_()
+            )
 
             # 1. Search Google Maps
             if update_callback: update_callback(f"🚀 Starting Mission: {self.keyword}")
-            companies = await self.scrape_google_maps(page)
+            basic_companies = await self.scrape_google_maps(page)
             
-            for company in companies:
+            final_leads = []
+
+            for basic_info in basic_companies:
                 if update_callback:
-                    update_callback(f"🔍 Analyzing {company['name']}...")
+                    update_callback(f"🔍 Analyzing {basic_info['name']}...")
+                
+                # Create a fresh lead object for this individual step
+                company = basic_info.copy()
                 
                 # 2. Scrape Website and Extract Emails
+                # Heavy data (content) is only temporary here
                 website_content, emails = await self.scrape_website(page, company["website"])
                 company["email"] = ", ".join(emails) if emails else "N/A"
                 
                 # 3. LinkedIn Search
                 company["linkedin"] = await self.search_linkedin(page, company["name"])
                 
-                # 4. AI Scoring
+                # 4. AI Scoring (Uses content, then we can discard content)
                 score, age, reasoning = await self.score_lead_ai(company["name"], website_content)
                 company["score"] = score
                 company["age"] = age
                 company["reasoning"] = reasoning
 
                 # 5. Storage
-                # Convert score to 0 if it's "Pending" for the comparison check
-                comparison_score = score if isinstance(score, (int, float)) else 0
+                # We save immediately as requested to avoid keeping all in RAM
+                if update_callback:
+                    update_callback(f"🚀 Attempting to save {company['name']} to GSheets...")
                 
-                if True: # Temporarily saving all leads for testing
+                save_success = self.gsheets.append_lead(company)
+                
+                if save_success:
                     if update_callback:
-                        update_callback(f"🚀 Attempting to save {company['name']} to GSheets...")
-                    
-                    save_success = self.gsheets.append_lead(company)
-                    
-                    if save_success:
-                        if update_callback:
-                            update_callback(f"✅ SUCCESSFULLY SAVED: {company['name']} to spreadsheet.")
-                    else:
-                        if update_callback:
-                            update_callback(f"❌ FAILED to save to GSheets. Check Render logs for the specific error (Auth or Sheet ID).")
+                        update_callback(f"✅ SUCCESSFULLY SAVED: {company['name']}.")
                 else:
-                    status_text = f"Low Score ({score})" if comparison_score < 70 else "Pending AI Review"
                     if update_callback:
-                        update_callback(f"⚠️ {status_text}: {company['name']}. Skipping storage.")
+                        update_callback(f"❌ FAILED to save to GSheets.")
+
+                # Keep a LIGHTWEIGHT version for the UI results
+                # We don't need to keep the full website_content or reasoning if RAM is tight
+                summary_lead = {
+                    "name": company["name"],
+                    "website": company["website"],
+                    "email": company["email"],
+                    "score": company["score"],
+                    "reasoning": company["reasoning"][:100] + "..." # Truncate reasoning 
+                }
+                final_leads.append(summary_lead)
                 
-                self.leads.append(company)
+                # CRITICAL: Clear heavy variables for GC
+                company = None
+                website_content = None
+                
                 await self.sleep_random(2, 5)
 
             await browser.close()
             if update_callback: update_callback("🏁 Mission Complete!")
-            return self.leads
+            return final_leads
 
 if __name__ == "__main__":
     # Test run

@@ -3,7 +3,7 @@ services:
     name: lead-hunter-thinker
     env: python
     buildCommand: bash build.sh
-    startCommand: uvicorn thinker_app:app --host 0.0.0.0 --port $PORT
+    startCommand: streamlit run dashboard.py --server.port $PORT
     envVars:
       - key: GEMINI_API_KEY
         sync: false

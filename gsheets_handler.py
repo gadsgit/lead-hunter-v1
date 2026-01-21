@@ -30,14 +30,13 @@ class GSheetsHandler:
                 try:
                     info = json.loads(json_creds)
                     creds = Credentials.from_service_account_info(info, scopes=self.scope)
-                    print("Connecting using GOOGLE_CREDENTIALS_JSON/GSHEETS_JSON environment variable.")
+                    print(f"✅ Credentials loaded. Service Account: {info.get('client_email')}")
                 except Exception as e:
-                    print(f"Error parsing JSON credentials from environment: {e}")
+                    print(f"❌ Error parsing GOOGLE_CREDENTIALS_JSON: {e}")
 
             if not creds:
-                print(f"Checking for credentials file at: {os.path.abspath(self.credentials_file)}")
                 if not os.path.exists(self.credentials_file):
-                    print(f"Error: Credentials file {self.credentials_file} not found.")
+                    print(f"❌ Error: No credentials via ENV or FILE ({self.credentials_file}) found.")
                     return False
                 creds = Credentials.from_service_account_file(self.credentials_file, scopes=self.scope)
             
@@ -45,16 +44,19 @@ class GSheetsHandler:
             
             if self.sheet_id:
                 try:
+                    print(f"📡 Opening spreadsheet by ID: {self.sheet_id}")
                     self.sheet = self.client.open_by_key(self.sheet_id).get_worksheet(0)
-                except gspread.exceptions.SpreadsheetNotFound:
-                    print(f"Error: Spreadsheet with ID {self.sheet_id} not found. Ensure it is shared with the service account email.")
+                    print("✅ Spreadsheet opened successfully.")
+                except Exception as e:
+                    print(f"❌ Failed to open spreadsheet by ID: {e}")
                     return False
             else:
-                # Fallback to opening by name if ID is missing (not recommended)
                 try:
+                    print("📡 No GOOGLE_SHEET_ID found. Attempting to open by name: 'Lead Hunter Results'")
                     self.sheet = self.client.open("Lead Hunter Results").get_worksheet(0)
-                except gspread.exceptions.SpreadsheetNotFound:
-                    print("Error: Spreadsheet 'Lead Hunter Results' not found. Please set GOOGLE_SHEET_ID or create a sheet with this name.")
+                except Exception as e:
+                    print(f"❌ Failed to open 'Lead Hunter Results': {e}")
+                    print("💡 TIP: Add GOOGLE_SHEET_ID to your Render Environment variables and share the sheet with the Service Account email.")
                     return False
             
             # Initialize headers if sheet is empty
@@ -72,18 +74,12 @@ class GSheetsHandler:
             if not self.connect():
                 return False
         try:
-            # Expected lead_data: list or dict
+            # Expected lead_data: dict
             if isinstance(lead_data, dict):
-                # If AI review is pending, fill in the appropriate fields
                 score = lead_data.get("score")
                 age = lead_data.get("age")
                 reasoning = lead_data.get("reasoning")
-                if score == "Pending":
-                    score = "Pending AI Review"
-                if age == "Pending":
-                    age = "Pending AI Review"
-                if reasoning == "Pending":
-                    reasoning = "Pending AI Review"
+                
                 row = [
                     lead_data.get("name"),
                     lead_data.get("website"),

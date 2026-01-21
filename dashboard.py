@@ -1,6 +1,5 @@
 import streamlit as st
 import asyncio
-import pandas as pd
 from hunter import LeadHunter
 import os
 import time
@@ -129,38 +128,54 @@ async def run_hunter():
     return leads
 
 
-# --- Main Hunter Loop with Pause Check ---
+# --- Main Hunter Loop ---
 if st.session_state.get("hunting"):
     if not st.session_state.run_status:
         st.info("System is idle. No credits being used.")
     else:
-        # Clear previous results if any
         st.session_state.results = []
-        with st.spinner("Hunter is active in the field..."):
+        with st.spinner("Hunter is scanning the field..."):
             try:
-                # We use a wrapper to handle the event loop in Streamlit
-                results = asyncio.run(run_hunter())
-                st.session_state.results = results
-                st.session_state.hunting = False
-                st.success("Mission Accomplished! Qualified leads have been secured.")
+                # We initialize the hunter here so we can call it
+                hunter_instance = LeadHunter(target_keyword, limit=scrape_limit)
+                
+                # We use a custom callback that logs and writes to screen
+                def streamlit_callback(msg):
+                    log_message(msg)
+                    st.write(msg)
+                
+                # Run the mission
+                results = asyncio.run(hunter_instance.run_mission(update_callback=streamlit_callback))
+                
+                if results:
+                    st.session_state.results = results
+                    st.session_state.hunting = False
+                    st.success(f"🎯 Mission Complete! Found {len(results)} leads.")
+                else:
+                    st.session_state.hunting = False
+                    st.warning("No leads found. Check Render logs for 'Robot Check' or 'Consent Screen' blocks.")
             except Exception as e:
                 st.error(f"Mission Failed: {e}")
                 st.session_state.hunting = False
 
 if st.session_state.get("results"):
-    df = pd.DataFrame(st.session_state.results)
-    if not df.empty:
-        results_area.dataframe(df.sort_values(by="score", ascending=False), use_container_width=True)
+    results = st.session_state.results
+    if results:
+        # Simple table display without Pandas
+        st.table(results)
         
         # Stats
-        qualified_count = len(df[df['score'] > 70])
+        qualified_count = len([r for r in results if r.get('score', 0) > 70])
         st.metric("Qualified Leads Found", qualified_count)
         
-        # Download option
-        csv = df.to_csv(index=False).encode('utf-8')
+        # Simple Download (Manual CSV creation)
+        csv_header = "name,website,email,score,reasoning\n"
+        csv_rows = [f"{r['name']},{r['website']},{r['email']},{r['score']},\"{r['reasoning']}\"" for r in results]
+        csv_data = csv_header + "\n".join(csv_rows)
+        
         st.download_button(
             "📥 Download Intel Report (CSV)",
-            csv,
+            csv_data,
             f"leads_{target_keyword.replace(' ', '_')}.csv",
             "text/csv",
             key='download-csv'

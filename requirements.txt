@@ -1,20 +1,9 @@
-# Web & UI
 streamlit
-fastapi
-uvicorn
-
-# Scraping
 playwright
 playwright-stealth
 beautifulsoup4
-
-# Data & Google API
 gspread
-pandas
 google-auth
 google-api-python-client
 google-generativeai
-
-# Utilities
 python-dotenv
-requests

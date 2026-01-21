@@ -9,11 +9,10 @@ echo "Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 2. Install Playwright browsers
-echo "Installing Playwright Chromium..."
-# We omit --with-deps because it requires sudo, which isn't available on Render's native env.
-# Render's Python environment usually comes pre-packaged with the necessary system libs.
+# 2. Install Playwright "Headless Shell" ONLY
+# This is a lighter-weight version of Chromium designed for RAM-constrained environments
+echo "Installing Playwright Chromium (Headless Shell)..."
 export PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/playwright
-python -m playwright install chromium
+python -m playwright install --with-deps chromium
 
 echo "--- BUILD COMPLETE ---"
