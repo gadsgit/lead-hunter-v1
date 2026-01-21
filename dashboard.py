@@ -189,12 +189,14 @@ if st.session_state.get("results"):
         st.metric("Qualified Leads Found", qualified_count)
         
         # CSV Export with ALL columns
-        headers = ["name", "website", "email", "phone", "linkedin", "instagram", "facebook", "score", "reasoning"]
+        headers = ["keyword", "name", "website", "email", "phone", "linkedin", "instagram", "facebook", "score", "decision", "reasoning"]
         csv_header = ",".join(headers) + "\n"
         
         csv_rows = []
         for r in results:
+            reasoning = str(r.get('reasoning', 'N/A')).replace('"', "'")
             row = [
+                str(r.get("keyword", "N/A")).replace(",", ""),
                 str(r.get("name", "N/A")).replace(",", ""),
                 str(r.get("website", "N/A")),
                 str(r.get("email", "N/A")),
@@ -203,7 +205,8 @@ if st.session_state.get("results"):
                 str(r.get("instagram", "N/A")),
                 str(r.get("facebook", "N/A")),
                 str(r.get("score", "N/A")),
-                f"\"{str(r.get('reasoning', 'N/A')).replace('\"', '\'')}\""
+                str(r.get("decision", "N/A")),
+                f'"{reasoning}"'
             ]
             csv_rows.append(",".join(row))
             
