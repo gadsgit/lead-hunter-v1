@@ -142,7 +142,7 @@ class GSheetsHandler:
             return self.spreadsheet.worksheet("LinkedIn Leads")
         except gspread.exceptions.WorksheetNotFound:
             # Create sheet if missing
-            headers = ["Keyword", "Name", "LinkedIn URL", "Summary", "Decision"]
+            headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision"]
             new_sheet = self.spreadsheet.add_worksheet(title="LinkedIn Leads", rows="1000", cols="20")
             new_sheet.append_row(headers)
             return new_sheet
@@ -154,6 +154,7 @@ class GSheetsHandler:
                 query,
                 data.get('name', 'N/A'),
                 data.get('url', 'N/A'),
+                data.get('score', 0),
                 data.get('summary', 'N/A'),
                 data.get('decision', 'N/A')
             ]

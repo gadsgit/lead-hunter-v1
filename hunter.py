@@ -4,6 +4,7 @@ import time
 import re
 import os
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 import glob
 import json
 from bs4 import BeautifulSoup
@@ -12,6 +13,15 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 
 load_dotenv()
+
+# List of common User-Agents for randomization
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/118.0"
+]
 if os.path.exists(".env.local"):
     load_dotenv(".env.local", override=True)
 
@@ -335,8 +345,14 @@ class LeadHunter:
             print(f"Launch Error with custom path: {repr(e)}")
             browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         
-        context = await browser.new_context()
+        context = await browser.new_context(
+            user_agent=random.choice(USER_AGENTS),
+            viewport={'width': 1920, 'height': 1080}
+        )
         page = await context.new_page()
+        
+        # Apply Stealth Mode
+        await stealth_async(page)
 
         # AGGRESSIVE MEDIA BLOCKING
         await page.route("**/*", lambda route: 
