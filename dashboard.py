@@ -3,6 +3,7 @@ import asyncio
 import os
 import time
 import psutil
+import urllib.parse
 from hunter import LeadHunter
 from dotenv import load_dotenv
 
@@ -73,6 +74,34 @@ ram_mb = get_ram_usage()
 st.sidebar.metric("RAM Usage", f"{ram_mb:.2f} MB", delta_color="inverse")
 if ram_mb > 450:
     st.sidebar.warning("⚠️ Critical: Approaching 512MB limit!")
+
+# --- Lead Dorking Toolkit ---
+with st.sidebar:
+    st.divider()
+    st.subheader("🛠️ Lead Dorking Toolkit")
+    st.markdown("Generate targeted Google X-Ray search links.")
+    
+    # User Input
+    dork_niche = st.text_input("Dork Niche", "Cosmetic Manufacturing")
+    dork_region = st.text_input("Dork Region", "USA")
+    
+    if dork_niche:
+        # Define "Dork" Templates
+        dorks = {
+            "🏢 Find Companies": f'site:linkedin.com/company/ "{dork_niche}" AND "{dork_region}"',
+            "👤 Find CEOs/Owners": f'site:linkedin.com/in/ "CEO" OR "Founder" AND "{dork_niche}"',
+            "🧴 Private Label Mfrs": f'site:linkedin.com/company/ "Private Label" AND "{dork_niche}"',
+            "📧 Email Discovery": f'site:linkedin.com/in/ "{dork_niche}" AND "@gmail.com"',
+            "📸 Instagram Discovery": f'site:instagram.com "{dork_niche}" AND "{dork_region}"'
+        }
+        
+        # Generate Clickable Buttons
+        for label, query in dorks.items():
+            encoded_query = urllib.parse.quote(query)
+            google_url = f"https://www.google.com/search?q={encoded_query}"
+            st.link_button(label, google_url, use_container_width=True)
+
+        st.info("💡 Tip: Use these to verify leads before running the automated scraper.")
 
 
 # --- Auto-Start with Manual Pause/Resume ---
