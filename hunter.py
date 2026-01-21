@@ -296,7 +296,7 @@ class LeadHunter:
             return []
 
         # 0. Checkpoint: Load History
-        print("📋 Loading mission history...")
+        print("Loading mission history...")
         existing_websites = self.gsheets.get_existing_leads()
 
         async with async_playwright() as p:
@@ -349,7 +349,7 @@ class LeadHunter:
             original_keyword = self.keyword
             self.keyword = target_keyword # Update internal state for scrape_google_maps
             
-            if update_callback: update_callback(f"🚀 Starting Mission: {self.keyword}")
+            if update_callback: update_callback(f"Starting Mission: {self.keyword}")
             
             try:
                 basic_companies = await self.scrape_google_maps(page)
@@ -361,12 +361,12 @@ class LeadHunter:
             for basic_info in basic_companies:
                 # CHECKPOINT: Skip if we already have this URL
                 if basic_info.get("website") in existing_websites:
-                    print(f"⏩ Skipping {basic_info['name']} (Already in Repository)")
-                    if update_callback: update_callback(f"⏩ Skipping {basic_info['name']} (Duplicate)")
+                    print(f"Skipping {basic_info['name']} (Already in Repository)")
+                    if update_callback: update_callback(f"Skipping {basic_info['name']} (Duplicate)")
                     continue
 
                 if update_callback:
-                    update_callback(f"🔍 Analyzing {basic_info['name']}...")
+                    update_callback(f"Analyzing {basic_info['name']}...")
                 
                 # Create a fresh lead object for this individual step
                 company = basic_info.copy()
@@ -394,16 +394,16 @@ class LeadHunter:
                 # 5. Storage
                 # We save immediately as requested to avoid keeping all in RAM
                 if update_callback:
-                    update_callback(f"🚀 Attempting to save {company['name']} to GSheets...")
+                    update_callback(f"Attempting to save {company['name']} to GSheets...")
                 
                 save_success = self.gsheets.append_lead(company)
                 
                 if save_success:
                     if update_callback:
-                        update_callback(f"✅ SUCCESSFULLY SAVED: {company['name']}.")
+                        update_callback(f"SUCCESSFULLY SAVED: {company['name']}.")
                 else:
                     if update_callback:
-                        update_callback(f"❌ FAILED to save to GSheets.")
+                        update_callback(f"FAILED to save to GSheets.")
 
                 # Keep a LIGHTWEIGHT version for the UI results
                 # We don't need to keep the full website_content or reasoning if RAM is tight
@@ -423,7 +423,7 @@ class LeadHunter:
                 await self.sleep_random(2, 5)
 
             await browser.close()
-            if update_callback: update_callback(f"🏁 Mission Complete: {target_keyword}")
+            if update_callback: update_callback(f"Mission Complete: {target_keyword}")
             return final_leads
 
     async def start_global_hunt(self, targets=None):
@@ -436,10 +436,10 @@ class LeadHunter:
         for query in targets:
             # 2. CHECKPOINT: Skip if already in the Mission_Progress tab
             if query in finished:
-                print(f"⏭️ Skipping Mission '{query}' - Already completed.")
+                print(f"Skipping Mission '{query}' - Already completed.")
                 continue
                 
-            print(f"🚀 Starting New Mission: {query}")
+            print(f"Starting New Mission: {query}")
             
             # 3. Run search and save logic
             await self.run_mission(keyword=query, update_callback=print)

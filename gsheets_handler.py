@@ -24,9 +24,9 @@ class GSheetsHandler:
             try:
                 # Extract ID from /d/ID_HERE/
                 self.sheet_id = self.sheet_id.split("/d/")[1].split("/")[0]
-                print(f"🧹 Cleaned Sheet ID from URL: {self.sheet_id}")
+                print(f"Cleaned Sheet ID from URL: {self.sheet_id}")
             except Exception as e:
-                print(f"⚠️ Failed to parse URL for Sheet ID: {e}")
+                print(f"Failed to parse URL for Sheet ID: {e}")
 
         self.client = None
         self.sheet = None
@@ -41,13 +41,13 @@ class GSheetsHandler:
                 try:
                     info = json.loads(json_creds)
                     creds = Credentials.from_service_account_info(info, scopes=self.scope)
-                    print(f"✅ Credentials loaded. Service Account: {info.get('client_email')}")
+                    print(f"Credentials loaded. Service Account: {info.get('client_email')}")
                 except Exception as e:
-                    print(f"❌ Error parsing GOOGLE_CREDENTIALS_JSON: {e}")
+                    print(f"Error parsing GOOGLE_CREDENTIALS_JSON: {e}")
 
             if not creds:
                 if not os.path.exists(self.credentials_file):
-                    print(f"❌ Error: No credentials via ENV or FILE ({self.credentials_file}) found.")
+                    print(f"Error: No credentials via ENV or FILE ({self.credentials_file}) found.")
                     return False
                 creds = Credentials.from_service_account_file(self.credentials_file, scopes=self.scope)
             
@@ -55,35 +55,35 @@ class GSheetsHandler:
             
             if self.sheet_id:
                 try:
-                    print(f"📡 Opening spreadsheet by ID: {self.sheet_id}")
+                    print(f"Opening spreadsheet by ID: {self.sheet_id}")
                     spreadsheet = self.client.open_by_key(self.sheet_id)
                     
                     # Target specific GID if provided
                     if self.sheet_gid and self.sheet_gid != "0":
                         try:
-                            print(f"🎯 Targeting specific GID (Tab): {self.sheet_gid}")
+                            print(f"Targeting specific GID (Tab): {self.sheet_gid}")
                             self.sheet = spreadsheet.get_worksheet_by_id(int(self.sheet_gid))
                             if not self.sheet:
-                                print(f"⚠️ GID {self.sheet_gid} not found. Falling back to first tab.")
+                                print(f"GID {self.sheet_gid} not found. Falling back to first tab.")
                                 self.sheet = spreadsheet.get_worksheet(0)
                         except Exception as gid_err:
-                            print(f"⚠️ GID Error: {gid_err}. Using first tab.")
+                            print(f"GID Error: {gid_err}. Using first tab.")
                             self.sheet = spreadsheet.get_worksheet(0)
                     else:
                         self.sheet = spreadsheet.get_worksheet(0)
                         
-                    print(f"✅ Sheet '{self.sheet.title}' opened successfully.")
+                    print(f"Sheet '{self.sheet.title}' opened successfully.")
                 except Exception as e:
-                    print(f"❌ Failed to open spreadsheet by ID: {e}")
+                    print(f"Failed to open spreadsheet by ID: {e}")
                     return False
             else:
                 try:
-                    print("📡 No GOOGLE_SHEET_ID found. Attempting to open by name: 'Lead Hunter Results'")
+                    print("No GOOGLE_SHEET_ID found. Attempting to open by name: 'Lead Hunter Results'")
                     self.sheet = self.client.open("Lead Hunter Results").get_worksheet(0)
-                    print(f"✅ Found sheet by name: {self.sheet.title}")
+                    print(f"Found sheet by name: {self.sheet.title}")
                 except Exception as e:
-                    print(f"❌ Failed to open 'Lead Hunter Results': {e}")
-                    print("💡 TIP: Add GOOGLE_SHEET_ID to your Render Environment variables and share the sheet with the Service Account email.")
+                    print(f"Failed to open 'Lead Hunter Results': {e}")
+                    print("TIP: Add GOOGLE_SHEET_ID to your Render Environment variables and share the sheet with the Service Account email.")
                     return False
             
             # Initialize headers if sheet is empty
@@ -121,13 +121,13 @@ class GSheetsHandler:
                 row = company_data
             
             self.sheet.append_row(row)
-            print(f"✅ Successfully saved to GSheets: {row[0]}")
+            print(f"Successfully saved to GSheets: {row[0]}")
             return True
         except Exception as e:
             # This is the "Why" catcher requested
-            print(f"❌ GSheets Error Detail: {str(e)}")
+            print(f"GSheets Error Detail: {str(e)}")
             if "PERMISSION_DENIED" in str(e).upper():
-                print("💡 TIP: Ensure the sheet is SHARED with the service account email.")
+                print("TIP: Ensure the sheet is SHARED with the service account email.")
             return False
 
     def get_existing_leads(self):
@@ -144,7 +144,7 @@ class GSheetsHandler:
             # Filter out empty or header values if necessary, though set handles duplicates
             return set(url.strip() for url in existing_urls if url.strip() and url != "Website")
         except Exception as e:
-            print(f"⚠️ Could not load history: {e}")
+            print(f"Could not load history: {e}")
             return set()
 
     def get_finished_missions(self):
@@ -171,11 +171,11 @@ class GSheetsHandler:
                 mission_sheet = spreadsheet.worksheet("Mission_Progress")
             except:
                 # Create if it doesn't exist
-                print("🆕 Creating 'Mission_Progress' tab...")
+                print("Creating 'Mission_Progress' tab...")
                 mission_sheet = spreadsheet.add_worksheet(title="Mission_Progress", rows=1000, cols=2)
                 mission_sheet.append_row(["Completed_Queries"])
             
             mission_sheet.append_row([query])
-            print(f"🏁 Mission Archived: {query}")
+            print(f"Mission Archived: {query}")
         except Exception as e:
-            print(f"⚠️ Could not archive mission: {e}")
+            print(f"Could not archive mission: {e}")
