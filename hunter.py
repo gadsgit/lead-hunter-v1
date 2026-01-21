@@ -4,6 +4,7 @@ import time
 import re
 import os
 from playwright.async_api import async_playwright
+import glob
 from bs4 import BeautifulSoup
 import pandas as pd
 from gsheets_handler import GSheetsHandler
@@ -210,28 +211,37 @@ class LeadHunter:
 
     async def run_mission(self, update_callback=None):
         async with async_playwright() as p:
-            # Check if we are on Render (which has this variable set)
-            # otherwise use the default for local development.
-            executable_dir = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
-            if executable_dir:
-                print(f"Seeking browser in persistent path: {executable_dir}")
+            # Check if we are on Render; if so, point to the custom path
+            custom_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+            executable_path = None
             
+            if custom_path:
+                print(f"Seeking browser in persistent path: {custom_path}")
+                # Look for the chromium executable in the persistent path
+                # Playwright installs them in subfolders like 'chromium-1200/chrome-linux/chrome'
+                # or 'chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell'
+                matches = glob.glob(os.path.join(custom_path, "**/chrome-headless-shell"), recursive=True)
+                if not matches:
+                    matches = glob.glob(os.path.join(custom_path, "**/chrome"), recursive=True)
+                
+                if matches:
+                    executable_path = matches[0]
+                    print(f"Found browser executable at: {executable_path}")
+
             # Launch browser with stealth settings
             try:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-blink-features=AutomationControlled",
-                    ]
-                )
+                launch_kwargs = {
+                    "headless": True,
+                    "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-blink-features=AutomationControlled"]
+                }
+                if executable_path:
+                    launch_kwargs["executable_path"] = executable_path
+                
+                browser = await p.chromium.launch(**launch_kwargs)
             except Exception as e:
-                print(f"Standard launch failed: {e}. Attempting fallback...")
-                # If standard launch fails, it might be due to pathing or specific binary missing
+                print(f"Enhanced launch failed: {e}. Attempting basic fallback...")
                 browser = await p.chromium.launch(
                     headless=True,
-                    channel="chromium",
                     args=["--no-sandbox", "--disable-setuid-sandbox"]
                 )
             context = await browser.new_context(

@@ -2,11 +2,9 @@
 # exit on error
 set -o errexit
 
-# Install python dependencies from the correct file
-pip install -r requirements-render.txt
+# 1. Install Python packages
+pip install -r requirements.txt
 
-# This ensures the browser is downloaded into the PERSISTENT directory 
-# you defined in the Render Dashboard variables.
-# We export it here to be absolutely sure during the build phase.
-export PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/playwright
-python -m playwright install --with-deps chromium
+# 2. Tell Playwright to install the browser into our persistent directory
+# This ensures it survives the move from "Build" to "Run"
+PLAYWRIGHT_BROWSERS_PATH=/opt/render/project/playwright python -m playwright install --with-deps chromium
