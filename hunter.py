@@ -4,8 +4,6 @@ import time
 import re
 import os
 from playwright.async_api import async_playwright
-from playwright.async_api import async_playwright
-import glob
 import glob
 import json
 from bs4 import BeautifulSoup
