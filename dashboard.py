@@ -214,27 +214,31 @@ if st.session_state.get("hunting"):
     status_text = st.sidebar.empty()
     
     # Live Metrics
-    m_col1, m_col2, m_col3 = st.columns(3)
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
     fetched_metric = m_col1.metric("Leads Found", "0")
     ai_metric = m_col2.metric("AI Reviewed", "0")
     inserted_metric = m_col3.metric("Inserted", "0")
+    ram_metric = m_col4.metric("RAM", f"{get_ram_usage():.1f} MB")
     
     with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
+        def update_ram():
+            ram_now = get_ram_usage()
+            ram_metric.metric("RAM", f"{ram_now:.1f} MB")
+
         def live_logger_g(msg):
             st.write(msg)
             log_message_g(msg)
+            update_ram()
             # Check for specific statuses to update metrics
             if "Saved" in msg:
                 # Update Inserted count based on actual list length
                 inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
-            if "AI Analyzing" in msg:
-                 # We track AI starts here, or we can track AI completions if we prefer
-                 pass 
 
         def live_logger_l(msg):
             st.write(msg)
             log_message_l(msg)
+            update_ram()
             if "Saved" in msg:
                  inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
             
@@ -264,11 +268,11 @@ if st.session_state.get("hunting"):
                 # Better: clean implementation
                 pass
 
-        # We will wrap the logger to handle metrics dynamically
-        current_ai_count = 0
+        # We will use session state to track metrics dynamically
+        if 'ai_reviewed_count' not in st.session_state:
+            st.session_state.ai_reviewed_count = 0
         
         def smart_logger_g(msg):
-            nonlocal current_ai_count
             live_logger_g(msg)
             
             if "processing Lead" in msg:
@@ -278,17 +282,16 @@ if st.session_state.get("hunting"):
                  except: pass
             
             if "Syncing" in msg:
-                current_ai_count += 1
-                ai_metric.metric("AI Reviewed", str(current_ai_count))
+                st.session_state.ai_reviewed_count += 1
+                ai_metric.metric("AI Reviewed", str(st.session_state.ai_reviewed_count))
 
         def smart_logger_l(msg):
-            nonlocal current_ai_count
             live_logger_l(msg)
             if "AI Analyzing" in msg:
                 pass # LinkedIn does batch scanning then AI, diff flow
             if "SAVED" in msg:
-                current_ai_count += 1
-                ai_metric.metric("AI Reviewed", str(current_ai_count))
+                st.session_state.ai_reviewed_count += 1
+                ai_metric.metric("AI Reviewed", str(st.session_state.ai_reviewed_count))
 
         try:
             if mode == "google":

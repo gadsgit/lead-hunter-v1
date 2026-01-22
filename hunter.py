@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
 import google.generativeai as genai
+import gc
 
 # Try importing different stealth implementations to compatible with different versions
 stealth_async = None
@@ -502,13 +503,19 @@ class LeadHunter:
             
             # ATOMIC SESSION
             company_data = None
+            company_content = None
+            
+            # --- PHASE 1: THE BROWSER (RAM HEAVY) ---
             try:
+                # Update approximate found count
                 if progress_callback: progress_callback(count / total)
                 
                 async with async_playwright() as p:
                     browser, page = await self.get_browser_and_page(p)
+                    
                     try:
                         company = basic_info.copy()
+                        # Scrape with strict timeout
                         website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
                         
                         company["email"] = ", ".join(emails) if emails else "N/A"
@@ -521,15 +528,32 @@ class LeadHunter:
                                 company["linkedin"] = found_li
                                 
                         company_data = company
-                        company_content = website_content[:3000]
+                        # Truncate content specifically to save RAM
+                        company_content = website_content[:5000]
+                    except Exception as e:
+                        print(f"Scrape error for {basic_info['name']}: {e}")
+                        company_data = basic_info.copy() # Fallback to basic info
+                        company_content = ""
                     finally:
-                        await browser.close()
-                
-                # AI Scoring & Saving (Outside browser context)
-                if company_data:
+                         # Force close everything
+                         await browser.close()
+                         try:
+                             await p.stop()
+                         except: pass
+
+            except Exception as e:
+                print(f"Browser launch error: {e}")
+
+            # --- PHASE 2: THE CLEANUP (MEMORY FLUSH) ---
+            gc.collect()
+            
+            # --- PHASE 3: THE AI (RAM LIGHT) ---
+            if company_data:
+                try:
                     if update_callback: update_callback(f"AI Analyzing & Saving {company_data['name']}...")
                     
-                    score, decision, age, summary = await self.score_lead_ai(company_data["name"], company_content)
+                    # Safe analysis even with empty content
+                    score, decision, age, summary = await self.score_lead_ai(company_data["name"], company_content or "")
                     company_data["score"] = score
                     company_data["decision"] = decision
                     company_data["age"] = age
@@ -547,10 +571,9 @@ class LeadHunter:
                         "summary": company_data["summary"][:100] + "..." 
                     }
                     final_leads.append(summary_lead)
-                    
-            except Exception as e:
-                print(f"Error processing {basic_info['name']}: {e}")
-                if update_callback: update_callback(f"Error: {e}")
+                except Exception as e:
+                    print(f"AI/Save Error for {company_data['name']}: {e}")
+                    if update_callback: update_callback(f"Error saving {company_data['name']}")
 
         if update_callback: update_callback(f"Mission Complete: {target_keyword}")
         return final_leads
