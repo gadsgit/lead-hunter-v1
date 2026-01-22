@@ -42,6 +42,12 @@ st.markdown("---")
 
 # Sidebar Configuration
 st.sidebar.header("📡 Mission Parameters")
+
+# Create placeholder metrics
+col_m1, col_m2 = st.sidebar.columns(2)
+fetched_metric = col_m1.metric("Fetched", "0")
+inserted_metric = col_m2.metric("Inserted", "0")
+
 target_keyword = st.sidebar.text_input("Target Keyword", value=os.getenv("KEYWORD", "Real Estate Agencies in Miami"))
 scrape_limit = st.sidebar.slider("Scrape Limit", 5, 50, int(os.getenv("SCRAPE_LIMIT", 10)))
 
@@ -204,20 +210,28 @@ if st.session_state.get("hunting"):
     hunter = LeadHunter(target_keyword, limit=scrape_limit)
     
     # Universal Progress UI
-    progress_bar = st.progress(0)
+    progress_bar = st.sidebar.progress(0)
+    status_text = st.sidebar.empty()
     
     with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
         def live_logger_g(msg):
             st.write(msg)
             log_message_g(msg)
+            # Check for specific success messages to update metrics
+            if "Saved" in msg or "Syncing" in msg:
+                inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
 
         def live_logger_l(msg):
             st.write(msg)
             log_message_l(msg)
+            if "Saved" in msg or "Syncing" in msg:
+                inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
             
         def update_progress(val):
             progress_bar.progress(val)
+            fetched_count = int(val * 10) # Approx
+            fetched_metric.metric("Fetched", f"~{fetched_count}")
 
         try:
             if mode == "google":
@@ -240,8 +254,10 @@ if st.session_state.get("hunting"):
                     st.write(msg)
                     if source == "linkedin":
                         log_message_l(msg)
+                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
                     else:
                         log_message_g(msg)
+                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
                         
                 results = asyncio.run(hunter.run_smart_mission(
                     target_keyword, 
@@ -259,8 +275,10 @@ if st.session_state.get("hunting"):
                     st.write(msg)
                     if source == "linkedin":
                         log_message_l(msg)
+                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
                     else:
                         log_message_g(msg)
+                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
                 
                 results = asyncio.run(hunter.run_automated_mission(
                     query, 
