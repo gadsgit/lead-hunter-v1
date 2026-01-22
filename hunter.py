@@ -5,7 +5,6 @@ import re
 import os
 from playwright.async_api import async_playwright
 from playwright.async_api import async_playwright
-from playwright_stealth import Stealth
 import glob
 import glob
 import json
@@ -13,6 +12,20 @@ from bs4 import BeautifulSoup
 from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
 import google.generativeai as genai
+
+# Try importing different stealth implementations to compatible with different versions
+stealth_async = None
+Stealth = None
+
+try:
+    from playwright_stealth import stealth_async
+except ImportError:
+    pass
+
+try:
+    from playwright_stealth import Stealth
+except ImportError:
+    pass
 
 load_dotenv()
 
@@ -346,8 +359,13 @@ class LeadHunter:
         page = await context.new_page()
         
         # Apply Stealth Mode
-        stealth = Stealth()
-        await stealth.apply_stealth_async(page)
+        if stealth_async:
+            await stealth_async(page)
+        elif Stealth:
+            stealth = Stealth()
+            await stealth.apply_stealth_async(page)
+        else:
+            print("⚠️ Playwright Stealth not available or incompatible version.")
 
         # AGGRESSIVE MEDIA BLOCKING
         await page.route("**/*", lambda route: 
