@@ -213,34 +213,87 @@ if st.session_state.get("hunting"):
     progress_bar = st.sidebar.progress(0)
     status_text = st.sidebar.empty()
     
-    # Reset Metrics
-    fetched_metric.metric("Fetched", "0")
-    inserted_metric.metric("Inserted", "0")
+    # Live Metrics
+    m_col1, m_col2, m_col3 = st.columns(3)
+    fetched_metric = m_col1.metric("Leads Found", "0")
+    ai_metric = m_col2.metric("AI Reviewed", "0")
+    inserted_metric = m_col3.metric("Inserted", "0")
     
     with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
         def live_logger_g(msg):
             st.write(msg)
             log_message_g(msg)
-            # Check for specific success messages to update metrics
-            if "Saved" in msg or "Syncing" in msg:
+            # Check for specific statuses to update metrics
+            if "Saved" in msg:
+                # Update Inserted count based on actual list length
                 inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
+            if "AI Analyzing" in msg:
+                 # We track AI starts here, or we can track AI completions if we prefer
+                 pass 
 
         def live_logger_l(msg):
             st.write(msg)
             log_message_l(msg)
-            if "Saved" in msg or "Syncing" in msg:
-                inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
+            if "Saved" in msg:
+                 inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
             
         def update_progress(val):
             progress_bar.progress(val)
-            fetched_count = int(val * 10) # Approx
-            fetched_metric.metric("Fetched", f"~{fetched_count}")
+            # Update 'Leads Found' estimate based on progress
+            # In atomic mode, we find them all first, so we can't easily track "found" increments 
+            # unless we change hunter.py to callback during the initial scan. 
+            # For now, we will assume 'Leads Found' = Total Expected from progress?
+            # Actually, hunter.py's update_callback sends "processing Lead X/Y", we can parse that!
+            pass
+
+        # Smart wrapper to parse messages for metrics
+        def metric_aware_logger(msg):
+            st.write(msg)
+            if "processing Lead" in msg:
+                # msg format: "processing Lead 1/10: Company Name"
+                try:
+                    parts = msg.split("/")[0].split(" ")[-1] # Gets '1' from '1/10'
+                    fetched_metric.metric("Leads Found", parts)
+                except:
+                    pass
+            
+            if "Syncing" in msg or "Saving" in msg:
+                # Increment AI Reviewed (since we only sync after AI)
+                current = ai_metric.label # Using a hack to store state or just query session state
+                # Better: clean implementation
+                pass
+
+        # We will wrap the logger to handle metrics dynamically
+        current_ai_count = 0
+        
+        def smart_logger_g(msg):
+            nonlocal current_ai_count
+            live_logger_g(msg)
+            
+            if "processing Lead" in msg:
+                 try:
+                    count = msg.split("Lead ")[1].split("/")[0]
+                    fetched_metric.metric("Leads Found", count)
+                 except: pass
+            
+            if "Syncing" in msg:
+                current_ai_count += 1
+                ai_metric.metric("AI Reviewed", str(current_ai_count))
+
+        def smart_logger_l(msg):
+            nonlocal current_ai_count
+            live_logger_l(msg)
+            if "AI Analyzing" in msg:
+                pass # LinkedIn does batch scanning then AI, diff flow
+            if "SAVED" in msg:
+                current_ai_count += 1
+                ai_metric.metric("AI Reviewed", str(current_ai_count))
 
         try:
             if mode == "google":
                 results = asyncio.run(hunter.run_mission(
-                    update_callback=live_logger_g, 
+                    update_callback=smart_logger_g, 
                     progress_callback=update_progress
                 ))
                 st.session_state.results_g = results
@@ -248,7 +301,7 @@ if st.session_state.get("hunting"):
                 li_kw = st.session_state.get("li_kw", target_keyword)
                 results = asyncio.run(hunter.run_linkedin_mission(
                     keyword=li_kw, 
-                    update_callback=live_logger_l
+                    update_callback=smart_logger_l
                 ))
                 st.session_state.results_l = results
             elif mode == "smart":
