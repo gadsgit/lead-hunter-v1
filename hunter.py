@@ -487,7 +487,8 @@ class LeadHunter:
                 await browser.close()
 
         # Step 2: Atomic Scraping (One Browser Session per Lead)
-        leads_to_process = []
+        # Step 2: Atomic Processing (Scrape -> Score -> Save)
+        final_leads = []
         count = 0
         total = len(basic_companies)
         
@@ -497,72 +498,59 @@ class LeadHunter:
                 if update_callback: update_callback(f"Skipping {basic_info['name']} (Duplicate)")
                 continue
 
-            if update_callback: update_callback(f"Scouting Lead {count}/{total}: {basic_info['name']}")
-            if progress_callback: progress_callback(count / total * 0.5) # First half is scouting
-
+            if update_callback: update_callback(f"processing Lead {count}/{total}: {basic_info['name']}")
+            
             # ATOMIC SESSION
-            async with async_playwright() as p:
-                browser, page = await self.get_browser_and_page(p)
-                try:
-                    company = basic_info.copy()
-                    website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
+            company_data = None
+            try:
+                if progress_callback: progress_callback(count / total)
+                
+                async with async_playwright() as p:
+                    browser, page = await self.get_browser_and_page(p)
+                    try:
+                        company = basic_info.copy()
+                        website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
+                        
+                        company["email"] = ", ".join(emails) if emails else "N/A"
+                        company["phone"] = phone
+                        company.update(socials)
+                        
+                        if company.get("linkedin") == "N/A":
+                            found_li = await self.search_linkedin(page, company["name"])
+                            if found_li != "N/A":
+                                company["linkedin"] = found_li
+                                
+                        company_data = company
+                        company_content = website_content[:3000]
+                    finally:
+                        await browser.close()
+                
+                # AI Scoring & Saving (Outside browser context)
+                if company_data:
+                    if update_callback: update_callback(f"AI Analyzing & Saving {company_data['name']}...")
                     
-                    company["email"] = ", ".join(emails) if emails else "N/A"
-                    company["phone"] = phone
-                    company.update(socials)
+                    score, decision, age, summary = await self.score_lead_ai(company_data["name"], company_content)
+                    company_data["score"] = score
+                    company_data["decision"] = decision
+                    company_data["age"] = age
+                    company_data["summary"] = summary
+
+                    self.gsheets.save_lead(company_data, query=target_keyword, source="google")
+
+                    summary_lead = {
+                        "keyword": target_keyword,
+                        "name": company_data["name"],
+                        "website": company_data["website"],
+                        "email": company_data["email"],
+                        "score": company_data["score"],
+                        "decision": company_data.get("decision", "N/A"),
+                        "summary": company_data["summary"][:100] + "..." 
+                    }
+                    final_leads.append(summary_lead)
                     
-                    if company.get("linkedin") == "N/A":
-                        found_li = await self.search_linkedin(page, company["name"])
-                        if found_li != "N/A":
-                            company["linkedin"] = found_li
-                    
-                    leads_to_process.append({
-                        "data": company,
-                        "content": website_content[:3000]
-                    })
-                except Exception as e:
-                    print(f"Scouting Error for {basic_info['name']}: {e}")
-                finally:
-                    await browser.close() # ENSURE BROWSER CLOSES EVERY TIME
-
-        # Step 3: AI Thinking & Saving (Browser is already closed here)
-        final_leads = []
-        process_count = 0
-        total_to_process = len(leads_to_process)
-        
-        for item in leads_to_process:
-            process_count += 1
-            company = item["data"]
-            content = item["content"]
-            
-            if update_callback: update_callback(f"AI Analyzing {company['name']} ({process_count}/{total_to_process})...")
-            if progress_callback: 
-                progress_callback(0.5 + (process_count / total_to_process * 0.5))
-
-            score, decision, age, summary = await self.score_lead_ai(company["name"], content)
-            company["score"] = score
-            company["decision"] = decision
-            company["age"] = age
-            company["summary"] = summary
-
-            if update_callback: update_callback(f"Syncing {company['name']} to GSheets...")
-            self.gsheets.save_lead(company, query=target_keyword, source="google")
-
-            summary_lead = {
-                "keyword": target_keyword,
-                "name": company["name"],
-                "website": company["website"],
-                "email": company["email"],
-                "score": company["score"],
-                "decision": company.get("decision", "N/A"),
-                "summary": company["summary"][:100] + "..." 
-            }
-            final_leads.append(summary_lead)
-            
-            # GC
-            item = None
-            company = None
-            content = None
+            except Exception as e:
+                print(f"Error processing {basic_info['name']}: {e}")
+                if update_callback: update_callback(f"Error: {e}")
 
         if update_callback: update_callback(f"Mission Complete: {target_keyword}")
         return final_leads
