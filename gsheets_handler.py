@@ -99,6 +99,23 @@ class GSheetsHandler:
             print(f"Error connecting to Google Sheets: {e}")
             return False
 
+    import time
+
+    def safe_append(self, sheet, row_data):
+        """Exponential backoff wrapper for append_row to handle 503 errors."""
+        import time
+        for attempt in range(4): # Try up to 4 times
+            try:
+                return sheet.append_row(row_data)
+            except Exception as e:
+                if "503" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait = 2 * (attempt + 1)
+                    print(f"⚠️ GSheets Busy (503). Retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    raise e
+        return False
+
     def save_lead(self, data, query, source="google"):
         """
         Routes data to the correct worksheet based on source.
@@ -132,7 +149,7 @@ class GSheetsHandler:
                     data.get('summary', 'N/A')
                 ]
                 # Targeting the main sheet (usually Sheet1)
-                self.sheet.append_row(row)
+                self.safe_append(self.sheet, row)
                 print(f"✅ Google Lead saved: {data.get('name')}")
             else:
                 # Optimized row for LinkedIn leads
@@ -145,19 +162,21 @@ class GSheetsHandler:
                     data.get('summary', 'N/A'),
                     data.get('decision', 'N/A')
                 ]
-                sheet.append_row(row)
+                self.safe_append(sheet, row)
                 print(f"✅ LinkedIn Lead saved: {data.get('name')}")
             return True
         except Exception as e:
             print(f"❌ Routing Error: {e}")
             # Try once more with fresh connection
             try:
+                import time
                 print("♻️ Attempting reconnection to save...")
                 self.connect()
+                time.sleep(1)
                 if source == "google":
-                   self.sheet.append_row(row)
+                   self.safe_append(self.sheet, row)
                 else:
-                   self.get_linkedin_sheet().append_row(row)
+                   self.safe_append(self.get_linkedin_sheet(), row)
                 print(f"✅ Saved after reconnection: {data.get('name')}")
                 return True
             except Exception as e2:
