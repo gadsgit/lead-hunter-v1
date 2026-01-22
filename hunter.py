@@ -4,7 +4,9 @@ import time
 import re
 import os
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth
+from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
+import glob
 import glob
 import json
 from bs4 import BeautifulSoup
@@ -344,7 +346,8 @@ class LeadHunter:
         page = await context.new_page()
         
         # Apply Stealth Mode
-        await stealth(page)
+        stealth = Stealth()
+        await stealth.apply_stealth_async(page)
 
         # AGGRESSIVE MEDIA BLOCKING
         await page.route("**/*", lambda route: 
