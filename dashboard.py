@@ -203,19 +203,26 @@ if st.session_state.get("hunting"):
     mode = st.session_state.get("hunting_mode", "google")
     hunter = LeadHunter(target_keyword, limit=scrape_limit)
     
-    with st.spinner(f"Hunter active: {mode.upper()} mode..."):
-        # Universal Progress UI
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    # Universal Progress UI
+    progress_bar = st.progress(0)
+    
+    with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
+        def live_logger_g(msg):
+            st.write(msg)
+            log_message_g(msg)
+
+        def live_logger_l(msg):
+            st.write(msg)
+            log_message_l(msg)
+            
         def update_progress(val):
             progress_bar.progress(val)
-            status_text.text(f"📡 Progress: {int(val*100)}%")
 
         try:
             if mode == "google":
                 results = asyncio.run(hunter.run_mission(
-                    update_callback=log_message_g, 
+                    update_callback=live_logger_g, 
                     progress_callback=update_progress
                 ))
                 st.session_state.results_g = results
@@ -223,15 +230,22 @@ if st.session_state.get("hunting"):
                 li_kw = st.session_state.get("li_kw", target_keyword)
                 results = asyncio.run(hunter.run_linkedin_mission(
                     keyword=li_kw, 
-                    update_callback=log_message_l
+                    update_callback=live_logger_l
                 ))
                 st.session_state.results_l = results
             elif mode == "smart":
                 source = hunter.detect_source(target_keyword)
-                callback = log_message_l if source == "linkedin" else log_message_g
+                # Create a smart callback that writes to status + correct log list
+                def smart_callback(msg):
+                    st.write(msg)
+                    if source == "linkedin":
+                        log_message_l(msg)
+                    else:
+                        log_message_g(msg)
+                        
                 results = asyncio.run(hunter.run_smart_mission(
                     target_keyword, 
-                    update_callback=callback
+                    update_callback=smart_callback
                 ))
                 if source == "linkedin":
                     st.session_state.results_l = results
@@ -240,12 +254,18 @@ if st.session_state.get("hunting"):
             elif mode == "automated":
                 query = st.session_state.get("automated_query")
                 source = st.session_state.get("automated_source", "linkedin")
-                callback = log_message_l if source == "linkedin" else log_message_g
+                
+                def auto_callback(msg):
+                    st.write(msg)
+                    if source == "linkedin":
+                        log_message_l(msg)
+                    else:
+                        log_message_g(msg)
                 
                 results = asyncio.run(hunter.run_automated_mission(
                     query, 
                     source=source, 
-                    update_callback=callback,
+                    update_callback=auto_callback,
                     progress_callback=update_progress
                 ))
                 
@@ -256,10 +276,13 @@ if st.session_state.get("hunting"):
                 
                 st.balloons()
             
+            status.update(label="✅ Mission Accomplished!", state="complete")
             st.session_state.hunting = False
-            st.success("Mission Complete!")
+            # Short delay so user can see completion before rerun
+            time.sleep(1) 
             st.rerun()
         except Exception as e:
+            status.update(label="❌ Mission Failed", state="error")
             st.error(f"Mission Failed: {e}")
             st.session_state.hunting = False
 tab_google, tab_linkedin = st.tabs(["📍 Google Maps Leads", "💼 LinkedIn Leads"])
