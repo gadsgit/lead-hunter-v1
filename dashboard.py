@@ -213,6 +213,10 @@ if st.session_state.get("hunting"):
     progress_bar = st.sidebar.progress(0)
     status_text = st.sidebar.empty()
     
+    # Reset Metrics
+    fetched_metric.metric("Fetched", "0")
+    inserted_metric.metric("Inserted", "0")
+    
     with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
         def live_logger_g(msg):
