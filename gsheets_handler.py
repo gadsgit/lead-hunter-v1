@@ -105,10 +105,18 @@ class GSheetsHandler:
         source: 'google' or 'linkedin'
         """
         try:
-            if not self.spreadsheet:
+            # Ensure connection is active
+            if not self.client:
                 self.connect()
                 
             if source == "google":
+                # Ensure sheet is selected
+                if not self.sheet:
+                    if self.spreadsheet:
+                        self.sheet = self.spreadsheet.get_worksheet(0)
+                    else:
+                        self.connect()
+
                 # Detailed row for Google Maps leads
                 row = [
                     query,
@@ -142,7 +150,19 @@ class GSheetsHandler:
             return True
         except Exception as e:
             print(f"❌ Routing Error: {e}")
-            return False
+            # Try once more with fresh connection
+            try:
+                print("♻️ Attempting reconnection to save...")
+                self.connect()
+                if source == "google":
+                   self.sheet.append_row(row)
+                else:
+                   self.get_linkedin_sheet().append_row(row)
+                print(f"✅ Saved after reconnection: {data.get('name')}")
+                return True
+            except Exception as e2:
+                print(f"❌ Final Save Error: {e2}")
+                return False
 
     def get_linkedin_sheet(self):
         """Finds or creates the LinkedIn Leads tab."""
