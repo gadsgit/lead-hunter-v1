@@ -87,12 +87,15 @@ class LeadHunter:
             
         return found_socials
 
-    async def scrape_google_maps(self, page):
+    async def scrape_google_maps(self, page, update_callback=None):
         print(f"Searching Google Maps for: {self.keyword}")
+        if update_callback: update_callback(f"Searching Google Maps for: {self.keyword}")
         try:
             await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="networkidle", timeout=60000)
         except Exception as e:
-            print(f"Initial navigation slow/failed: {e}")
+            msg = f"Initial navigation slow/failed: {e}"
+            print(msg)
+            if update_callback: update_callback(msg)
             await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}")
         
         await self.sleep_random(5, 7)
@@ -107,7 +110,9 @@ class LeadHunter:
             ]
             for selector in consent_selectors:
                 if await page.query_selector(selector):
-                    print(f"Found consent screen, clicking {selector}...")
+                    msg = f"Found consent screen, clicking {selector}..."
+                    print(msg)
+                    if update_callback: update_callback(msg)
                     await page.click(selector)
                     await self.sleep_random(2, 4)
                     break
@@ -116,7 +121,9 @@ class LeadHunter:
 
         # Check for Google Maps failures
         if await page.query_selector('text="Google Maps can\'t find"'):
-            print(f"No results found for {self.keyword}")
+            msg = f"No results found for {self.keyword}"
+            print(msg)
+            if update_callback: update_callback(msg)
             return []
 
         results = []
@@ -125,9 +132,11 @@ class LeadHunter:
         try:
             await page.wait_for_selector('a.hfpxzc', timeout=10000)
         except:
-            print("Timed out waiting for results selector. Page might be loading slow or different layout.")
+            print("Timed out waiting for results selector.")
+            if update_callback: update_callback("Timed out waiting for results selector.")
 
         # Scroll down to load more results
+        if update_callback: update_callback("Scrolling to load results...")
         for _ in range(5):
             try:
                 feed_selector = 'div[role="feed"]'
@@ -147,7 +156,9 @@ class LeadHunter:
             # Secondary selector: company names
             items = await page.query_selector_all('.qBF1Pd')
 
-        print(f"Found {len(items)} items in view. Processing up to {self.limit}...")
+        msg = f"Found {len(items)} items in view. Processing up to {self.limit}..."
+        print(msg)
+        if update_callback: update_callback(msg)
 
         processed_names = set()
         for item in items:
@@ -483,7 +494,7 @@ class LeadHunter:
             browser, page = await self.get_browser_and_page(p)
             try:
                 # pass page object, not strings or modules
-                basic_companies = await self.scrape_google_maps(page)
+                basic_companies = await self.scrape_google_maps(page, update_callback)
             finally:
                 await browser.close()
 
