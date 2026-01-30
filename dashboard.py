@@ -214,61 +214,60 @@ if st.session_state.get("hunting"):
     progress_bar = st.sidebar.progress(0)
     status_text = st.sidebar.empty()
     
-    # Live Metrics
-    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    # --- Live Metric Placeholders ---
+    m_col1, m_col2, m_col3 = st.columns(3)
     fetched_metric = m_col1.metric("Leads Found", "0")
     ai_metric = m_col2.metric("AI Reviewed", "0")
     inserted_metric = m_col3.metric("Inserted", "0")
-    ram_metric = m_col4.metric("RAM", f"{get_ram_usage():.1f} MB")
     
     st.sidebar.divider()
     duplicate_metric = st.sidebar.metric("Duplicates Skipped", "0")
-    
-    with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
+    ram_metric = st.sidebar.metric("Live RAM", f"{get_ram_usage():.1f} MB")
+
+    with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status_box:
         
-        # Helper to track metrics using session state to avoid scope issues
-        if 'dup_count' not in st.session_state: st.session_state.dup_count = 0
-        if 'found_count' not in st.session_state: st.session_state.found_count = 0
-        if 'ai_count' not in st.session_state: st.session_state.ai_count = 0
+        # Reset session state counters for this specific mission run
+        st.session_state.found_count = 0
+        st.session_state.ai_count = 0
+        st.session_state.inserted_count = 0
+        st.session_state.dup_count = 0
 
-        def update_ram():
-            ram_now = get_ram_usage()
-            ram_metric.metric("RAM", f"{ram_now:.1f} MB")
+        def update_ui_metrics():
+            """Force-update all metric widgets from session state."""
+            fetched_metric.metric("Leads Found", str(st.session_state.found_count))
+            ai_metric.metric("AI Reviewed", str(st.session_state.ai_count))
+            inserted_metric.metric("Inserted", str(st.session_state.inserted_count))
+            duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
+            ram_metric.metric("Live RAM", f"{get_ram_usage():.1f} MB")
 
-        def live_logger_g(msg):
+        def central_logger(msg, log_type="google"):
+            """Single source of truth for logging and metric updates."""
+            # 1. Display in status box
             st.write(msg)
-            log_message_g(msg)
-            update_ram()
-            # Check for specific statuses to update metrics
-            if "Saved" in msg or "SAVED" in msg:
-                # Update Inserted count
-                inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
-            if "Duplicate" in msg:
-                st.session_state.dup_count += 1
-                duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
-            if "Discovered" in msg:
-                st.session_state.found_count += 1
-                fetched_metric.metric("Leads Found", str(st.session_state.found_count))
-            if "AI Analyzing" in msg:
-                st.session_state.ai_count += 1
-                ai_metric.metric("AI Reviewed", str(st.session_state.ai_count))
-
-        def live_logger_l(msg):
-            st.write(msg)
-            log_message_l(msg)
-            update_ram()
-            if "Saved" in msg or "SAVED" in msg:
-                 inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
-            if "Duplicate" in msg:
-                st.session_state.dup_count += 1
-                duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
-            if "Discovered" in msg or "Scraped LinkedIn" in msg:
-                st.session_state.found_count += 1
-                fetched_metric.metric("Leads Found", str(st.session_state.found_count))
-            if "AI Analyzing" in msg:
-                st.session_state.ai_count += 1
-                ai_metric.metric("AI Reviewed", str(st.session_state.ai_count))
             
+            # 2. Append to permanent logs
+            if log_type == "google":
+                log_message_g(msg)
+            else:
+                log_message_l(msg)
+            
+            # 3. Update Metrics based on keywords
+            if "Discovered:" in msg or "Scraped LinkedIn:" in msg:
+                st.session_state.found_count += 1
+            elif "AI Analyzing" in msg:
+                st.session_state.ai_count += 1
+            elif "Saved" in msg or "SAVED" in msg or "Syncing" in msg:
+                st.session_state.inserted_count += 1
+            elif "Duplicate" in msg:
+                st.session_state.dup_count += 1
+            
+            # 4. Push to UI
+            update_ui_metrics()
+
+        # Simple wrappers for the hunter callbacks
+        def logger_g(m): central_logger(m, "google")
+        def logger_l(m): central_logger(m, "linkedin")
+
         def update_progress(val):
             progress_bar.progress(val)
             # Update 'Leads Found' estimate based on progress
@@ -278,52 +277,10 @@ if st.session_state.get("hunting"):
             # Actually, hunter.py's update_callback sends "processing Lead X/Y", we can parse that!
             pass
 
-        # Smart wrapper to parse messages for metrics
-        def metric_aware_logger(msg):
-            st.write(msg)
-            if "processing Lead" in msg:
-                # msg format: "processing Lead 1/10: Company Name"
-                try:
-                    parts = msg.split("/")[0].split(" ")[-1] # Gets '1' from '1/10'
-                    fetched_metric.metric("Leads Found", parts)
-                except:
-                    pass
-            
-            if "Syncing" in msg or "Saving" in msg:
-                # Increment AI Reviewed (since we only sync after AI)
-                current = ai_metric.label # Using a hack to store state or just query session state
-                # Better: clean implementation
-                pass
-
-        # We will use session state to track metrics dynamically
-        if 'ai_reviewed_count' not in st.session_state:
-            st.session_state.ai_reviewed_count = 0
-        
-        def smart_logger_g(msg):
-            live_logger_g(msg)
-            
-            if "processing Lead" in msg:
-                 try:
-                    count = msg.split("Lead ")[1].split("/")[0]
-                    fetched_metric.metric("Leads Found", count)
-                 except: pass
-            
-            if "Syncing" in msg:
-                st.session_state.ai_reviewed_count += 1
-                ai_metric.metric("AI Reviewed", str(st.session_state.ai_reviewed_count))
-
-        def smart_logger_l(msg):
-            live_logger_l(msg)
-            if "AI Analyzing" in msg:
-                pass # LinkedIn does batch scanning then AI, diff flow
-            if "SAVED" in msg:
-                st.session_state.ai_reviewed_count += 1
-                ai_metric.metric("AI Reviewed", str(st.session_state.ai_reviewed_count))
-
         try:
             if mode == "google":
                 results = asyncio.run(hunter.run_mission(
-                    update_callback=smart_logger_g, 
+                    update_callback=logger_g, 
                     progress_callback=update_progress
                 ))
                 st.session_state.results_g = results
@@ -331,24 +288,15 @@ if st.session_state.get("hunting"):
                 li_kw = st.session_state.get("li_kw", target_keyword)
                 results = asyncio.run(hunter.run_linkedin_mission(
                     keyword=li_kw, 
-                    update_callback=smart_logger_l
+                    update_callback=logger_l
                 ))
                 st.session_state.results_l = results
             elif mode == "smart":
                 source = hunter.detect_source(target_keyword)
-                # Create a smart callback that writes to status + correct log list
-                def smart_callback(msg):
-                    st.write(msg)
-                    if source == "linkedin":
-                        log_message_l(msg)
-                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
-                    else:
-                        log_message_g(msg)
-                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
-                        
+                callback = logger_l if source == "linkedin" else logger_g
                 results = asyncio.run(hunter.run_smart_mission(
                     target_keyword, 
-                    update_callback=smart_callback
+                    update_callback=callback
                 ))
                 if source == "linkedin":
                     st.session_state.results_l = results
@@ -357,20 +305,12 @@ if st.session_state.get("hunting"):
             elif mode == "automated":
                 query = st.session_state.get("automated_query")
                 source = st.session_state.get("automated_source", "linkedin")
-                
-                def auto_callback(msg):
-                    st.write(msg)
-                    if source == "linkedin":
-                        log_message_l(msg)
-                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
-                    else:
-                        log_message_g(msg)
-                        if "Saved" in msg: inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
+                callback = logger_l if source == "linkedin" else logger_g
                 
                 results = asyncio.run(hunter.run_automated_mission(
                     query, 
                     source=source, 
-                    update_callback=auto_callback,
+                    update_callback=callback,
                     progress_callback=update_progress
                 ))
                 

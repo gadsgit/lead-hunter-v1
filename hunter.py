@@ -469,7 +469,9 @@ class LeadHunter:
                     snippet = "No snippet available"
                 
                 results.append({"name": name, "url": clean_url, "snippet": snippet})
-                print(f"  + Scraped LinkedIn: {name} (Snippet: {snippet[:50]}...)")
+                msg = f"💼 Scraped LinkedIn: {name}"
+                print(msg)
+                if update_callback: update_callback(msg)
 
         return results
 
@@ -724,6 +726,7 @@ class LeadHunter:
                         name, snippet = "Lead", "No snippet"
                         
                     profiles.append({"name": name, "url": clean_url, "snippet": snippet})
+                    if update_callback: update_callback(f"📍 Discovered: {name}")
 
             # FREE RAM
             await browser.close()
