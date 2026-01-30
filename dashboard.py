@@ -225,15 +225,15 @@ if st.session_state.get("hunting"):
     
     with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
-        # Helper to track duplicates locally
-        dup_count = 0
+        # Helper to track duplicates using session state to avoid scope issues
+        if 'dup_count' not in st.session_state:
+            st.session_state.dup_count = 0
 
         def update_ram():
             ram_now = get_ram_usage()
             ram_metric.metric("RAM", f"{ram_now:.1f} MB")
 
         def live_logger_g(msg):
-            nonlocal dup_count
             st.write(msg)
             log_message_g(msg)
             update_ram()
@@ -242,19 +242,18 @@ if st.session_state.get("hunting"):
                 # Update Inserted count based on actual list length
                 inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
             if "Duplicate" in msg:
-                dup_count += 1
-                duplicate_metric.metric("Duplicates Skipped", str(dup_count))
+                st.session_state.dup_count += 1
+                duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
 
         def live_logger_l(msg):
-            nonlocal dup_count
             st.write(msg)
             log_message_l(msg)
             update_ram()
             if "Saved" in msg:
                  inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
             if "Duplicate" in msg:
-                dup_count += 1
-                duplicate_metric.metric("Duplicates Skipped", str(dup_count))
+                st.session_state.dup_count += 1
+                duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
             
         def update_progress(val):
             progress_bar.progress(val)
