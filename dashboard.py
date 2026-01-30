@@ -184,9 +184,10 @@ if st.session_state.get("launch_trigger"):
     else:
         st.session_state.hunting = True
         st.session_state.logs_g = []
-        st.session_state.results_g = []
-        st.session_state.logs_l = []
         st.session_state.results_l = []
+        st.session_state.found_count = 0
+        st.session_state.dup_count = 0
+        st.session_state.ai_count = 0
         st.session_state.auto_start_timer = time.time()
 
 # --- Logging Utilities ---
@@ -225,9 +226,10 @@ if st.session_state.get("hunting"):
     
     with st.status(f"📡 Hunter Active: {mode.upper()} mode...", expanded=True) as status:
         
-        # Helper to track duplicates using session state to avoid scope issues
-        if 'dup_count' not in st.session_state:
-            st.session_state.dup_count = 0
+        # Helper to track metrics using session state to avoid scope issues
+        if 'dup_count' not in st.session_state: st.session_state.dup_count = 0
+        if 'found_count' not in st.session_state: st.session_state.found_count = 0
+        if 'ai_count' not in st.session_state: st.session_state.ai_count = 0
 
         def update_ram():
             ram_now = get_ram_usage()
@@ -238,22 +240,34 @@ if st.session_state.get("hunting"):
             log_message_g(msg)
             update_ram()
             # Check for specific statuses to update metrics
-            if "Saved" in msg:
-                # Update Inserted count based on actual list length
+            if "Saved" in msg or "SAVED" in msg:
+                # Update Inserted count
                 inserted_metric.metric("Inserted", str(len(st.session_state.results_g) + 1))
             if "Duplicate" in msg:
                 st.session_state.dup_count += 1
                 duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
+            if "Discovered" in msg:
+                st.session_state.found_count += 1
+                fetched_metric.metric("Leads Found", str(st.session_state.found_count))
+            if "AI Analyzing" in msg:
+                st.session_state.ai_count += 1
+                ai_metric.metric("AI Reviewed", str(st.session_state.ai_count))
 
         def live_logger_l(msg):
             st.write(msg)
             log_message_l(msg)
             update_ram()
-            if "Saved" in msg:
+            if "Saved" in msg or "SAVED" in msg:
                  inserted_metric.metric("Inserted", str(len(st.session_state.results_l) + 1))
             if "Duplicate" in msg:
                 st.session_state.dup_count += 1
                 duplicate_metric.metric("Duplicates Skipped", str(st.session_state.dup_count))
+            if "Discovered" in msg or "Scraped LinkedIn" in msg:
+                st.session_state.found_count += 1
+                fetched_metric.metric("Leads Found", str(st.session_state.found_count))
+            if "AI Analyzing" in msg:
+                st.session_state.ai_count += 1
+                ai_metric.metric("AI Reviewed", str(st.session_state.ai_count))
             
         def update_progress(val):
             progress_bar.progress(val)

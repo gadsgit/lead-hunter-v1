@@ -203,17 +203,21 @@ class LeadHunter:
                         website = await website_el.get_attribute('href')
                 
                 print(f"  + Scraped: {name} ({website})")
+                if update_callback: update_callback(f"📍 Discovered: {name}")
                 results.append({"name": name, "website": website})
             except Exception as e:
                 print(f"Error extracting item: {e}")
         
         if not results:
             print("⚠️ Re-checking with fallback extraction...")
+            if update_callback: update_callback("⚠️ Using fallback extraction...")
             # If still nothing, one final attempt looking for any visible text that looks like a business name
             potential_names = await page.query_selector_all('.fontHeadlineSmall')
             for el in potential_names[:self.limit]:
                 name = await el.inner_text()
                 if name:
+                    name = name.strip()
+                    if update_callback: update_callback(f"📍 Discovered: {name}")
                     results.append({"name": name.strip(), "website": "N/A"})
 
         return results
