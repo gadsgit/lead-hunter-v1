@@ -106,13 +106,15 @@ class LeadHunter:
     async def scrape_google_maps(self, page, update_callback=None):
         print(f"Searching Google Maps for: {self.keyword}")
         if update_callback: update_callback(f"Searching Google Maps for: {self.keyword}")
+        maps_url = f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}?hl=en"
+        
         try:
-            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}", wait_until="networkidle", timeout=60000)
+            await page.goto(maps_url, wait_until="networkidle", timeout=60000)
         except Exception as e:
             msg = f"Initial navigation slow/failed: {e}"
             print(msg)
             if update_callback: update_callback(msg)
-            await page.goto(f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}")
+            await page.goto(maps_url)
         
         await self.sleep_random(5, 7)
 
