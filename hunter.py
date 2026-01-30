@@ -57,6 +57,22 @@ class LeadHunter:
     async def sleep_random(self, min_s=2, max_s=5):
         await asyncio.sleep(random.uniform(min_s, max_s))
 
+    def truncate_for_ai(self, html_content, max_chars=5000):
+        """Clean and slice text so Gemini doesn't choke on RAM."""
+        try:
+            soup = BeautifulSoup(html_content, "html.parser")
+            # Remove script and style elements
+            for script_or_style in soup(["script", "style", "nav", "footer"]):
+                script_or_style.decompose()
+            
+            clean_text = soup.get_text(separator=' ')
+            # Collapse whitespace
+            clean_text = " ".join(clean_text.split())
+            return clean_text[:max_chars]
+        except Exception as e:
+            print(f"Truncation error: {e}")
+            return html_content[:max_chars]
+
     async def extract_socials(self, page):
         """
         Scans the current page for social media patterns.
@@ -540,7 +556,7 @@ class LeadHunter:
                                 
                         company_data = company
                         # Truncate content specifically to save RAM
-                        company_content = website_content[:5000]
+                        company_content = self.truncate_for_ai(website_content, 5000)
                     except Exception as e:
                         print(f"Scrape error for {basic_info['name']}: {e}")
                         company_data = basic_info.copy() # Fallback to basic info
