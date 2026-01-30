@@ -425,7 +425,7 @@ with tab_google:
 
     if st.button("🚀 Launch Google Hunter", key="run_google"):
         st.session_state.hunting_mode = "google"
-        st.session_state.hunting = True
+        st.session_state.launch_trigger = True
         st.rerun()
 
 with tab_linkedin:
@@ -457,7 +457,7 @@ with tab_linkedin:
     li_keyword = st.text_input("LinkedIn Search Keyword", value="CEO Real Estate Miami", key="li_kw")
     if st.button("💼 Launch LinkedIn Hijack", key="run_linkedin"):
         st.session_state.hunting_mode = "linkedin"
-        st.session_state.hunting = True
+        st.session_state.launch_trigger = True
         st.rerun()
 
 st.markdown("---")
