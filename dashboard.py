@@ -321,13 +321,13 @@ if st.session_state.get("hunting"):
                 
                 st.balloons()
             
-            status.update(label="✅ Mission Accomplished!", state="complete")
+            status_box.update(label="✅ Mission Accomplished!", state="complete")
             st.session_state.hunting = False
             # Short delay so user can see completion before rerun
             time.sleep(1) 
             st.rerun()
         except Exception as e:
-            status.update(label="❌ Mission Failed", state="error")
+            status_box.update(label="❌ Mission Failed", state="error")
             st.error(f"Mission Failed: {e}")
             st.session_state.hunting = False
 tab_google, tab_linkedin = st.tabs(["📍 Google Maps Leads", "💼 LinkedIn Leads"])
