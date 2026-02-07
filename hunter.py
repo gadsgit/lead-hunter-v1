@@ -452,9 +452,20 @@ class LeadHunter:
         final_dork = f"{base_dork} -intitle:jobs -inurl:jobs -inurl:posts"
         return final_dork
 
-    async def scrape_linkedin_profiles(self, page, keyword):
+    async def scrape_linkedin_profiles(self, page, keyword, is_dork=False):
+        """
+        Scrapes LinkedIn profiles from Google search results.
+        keyword: Either a plain keyword or a pre-built dork string
+        is_dork: If True, use keyword as-is. If False, generate dork from keyword.
+        """
         print(f"Executing X-Ray Hijack for: {keyword}")
-        dork = self.generate_dork(keyword)
+        
+        # Only generate dork if not already provided
+        if is_dork:
+            dork = keyword
+        else:
+            dork = self.generate_dork(keyword)
+            
         search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
         
         try:
@@ -728,10 +739,10 @@ class LeadHunter:
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
             
-            dork = self.generate_dork(target_keyword)
             if update_callback: update_callback(f"Starting X-Ray Mission Control: {target_keyword}")
             
-            profiles = await self.scrape_linkedin_profiles(page, target_keyword)
+            # Pass raw keyword, let scraper generate the dork
+            profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=False)
             
             # CRITICAL: Close browser immediately after scraping profiles
             await browser.close()
@@ -752,8 +763,8 @@ class LeadHunter:
                     "summary": summary
                 }
 
-                # Save to specific LinkedIn tab, passing either keyword or full dork
-                self.gsheets.append_linkedin_lead(lead, query=dork)
+                # Save to specific LinkedIn tab, passing the keyword
+                self.gsheets.append_linkedin_lead(lead, query=target_keyword)
                 
                 final_leads.append(lead)
                 if update_callback: update_callback(f"SAVED: {profile['name']}")
