@@ -212,6 +212,13 @@ class LeadHunter:
                         
                         if "Permanently closed" in txt:
                             is_closed = True
+                            
+                        # Check for Unclaimed status (heuristics)
+                        # Often "Own this business?" is not visible on the search results card directly without clicking.
+                        # But sometimes "Claim this business" appears. We'll search for it in `txt`.
+                        if "Own this business?" in txt or "Claim this business" in txt:
+                            # This needs to be passed out
+                            pass 
                     except:
                         pass
 
@@ -588,16 +595,37 @@ class LeadHunter:
                         company["tech_stack"] = tech_stack
                         company.update(socials)
 
-                        # OPPORTUNITY DETECTION
+                        # OPPORTUNITY DETECTION (User's Specific Pitch Logic)
                         opps = []
+                        
+                        # 0. Intent-Based Opportunities (Based on Query)
+                        if "emergency" in target_keyword.lower():
+                            opps.append("PPC / Google Ads (Urgent need)")
+                        if "new" in target_keyword.lower() and "york" not in target_keyword.lower(): # Avoid 'New York' false positives
+                            opps.append("Launch Marketing / Google Business Setup")
+
+                        # 1. GMB Status -> "Review Management"
                         if company.get("reviews", 0) < 10:
-                            opps.append("Review Management (<10 Revs)")
+                            opps.append("Automated Review Management")
+                        if company.get("is_unclaimed", False): 
+                            opps.append("Automated Review Management / Claim GMB")
+                            
+                        # 2. Tech Stack -> "Performance Marketing / CRO"
                         if company.get("website", "N/A") == "N/A":
-                            opps.append("Website Build")
+                            opps.append("High-Converting Landing Page Build")
+                        elif "Meta Pixel" not in tech_stack:
+                            opps.append("Performance Marketing / CRO (No Pixel)")
+                            
+                        # 3. Closed -> "Local SEO Fix"
                         if company.get("is_closed", False):
                             opps.append("Local SEO Fix (Closed)")
+                            
+                        # 4. Founder Match -> "Direct Outreach"
+                        if company.get("founder_match", "N/A") != "N/A" and company.get("founder_match") != "Not Found":
+                            opps.append("Direct Outreach / LinkedIn DM")
                         
-                        company["opportunity"] = ", ".join(opps) if opps else "N/A"
+                        # Deduplicate and join
+                        company["opportunity"] = ", ".join(list(set(opps))) if opps else "Lead Gen Automation"
                         
                         # X-RAY ENRICHMENT (The "Dual Scan" Feature)
                         founder_info = "N/A"

@@ -85,6 +85,23 @@ with tab_plan:
         
         st.write("---")
         st.subheader("🧠 Intelligence Mode")
+        
+        # Power Presets
+        with st.expander("⚡ High-Intent Power Filters", expanded=False):
+            c_p1, c_p2, c_p3 = st.columns(3)
+            if c_p1.button("🆕 New Business"):
+                st.session_state.target_query = "New Restaurants in Miami" # Example
+                st.session_state.search_mode = "Google Maps (Local)"
+                st.rerun()
+            if c_p2.button("🚨 Emergency Svc"):
+                st.session_state.target_query = "Emergency Plumber in London"
+                st.session_state.search_mode = "Google Maps (Local)"
+                st.rerun()
+            if c_p3.button("🟢 Open Now"):
+                st.session_state.target_query = "Dentist Open Now New York"
+                st.session_state.search_mode = "Google Maps (Local)"
+                st.rerun()
+                
         mode = st.radio("Select Strategy", 
                  ["Dual-Scan (Deep Hunt)", "Google Maps (Local)", "LinkedIn X-Ray (Direct)"],
                  key="search_mode",
