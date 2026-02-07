@@ -195,18 +195,34 @@ class LeadHunter:
                 processed_names.add(name)
                 
                 website = "N/A"
+                reviews = 0
+                is_closed = False
+                
                 # Locate the parent article to find the website button
                 article = await page.evaluate_handle('el => el.closest(\'div[role="article"]\')', item)
                 
                 if article:
+                    # Analysis for Opportunities
+                    try:
+                        txt = await article.inner_text()
+                        # Reviews count like (15)
+                        rev_match = re.search(r'\(([\d,]+)\)', txt)
+                        if rev_match:
+                            reviews = int(rev_match.group(1).replace(",", ""))
+                        
+                        if "Permanently closed" in txt:
+                            is_closed = True
+                    except:
+                        pass
+
                     # Sometimes the website button is inside the article but not a direct child
                     website_el = await article.as_element().query_selector('a[data-value="Website"]')
                     if website_el:
                         website = await website_el.get_attribute('href')
                 
-                print(f"  + Scraped: {name} ({website})")
+                print(f"  + Scraped: {name} ({website}) | Revs: {reviews}")
                 if update_callback: update_callback(f"📍 Discovered: {name}")
-                results.append({"name": name, "website": website})
+                results.append({"name": name, "website": website, "reviews": reviews, "is_closed": is_closed})
             except Exception as e:
                 print(f"Error extracting item: {e}")
         
@@ -220,7 +236,7 @@ class LeadHunter:
                 if name:
                     name = name.strip()
                     if update_callback: update_callback(f"📍 Discovered: {name}")
-                    results.append({"name": name.strip(), "website": "N/A"})
+                    results.append({"name": name.strip(), "website": "N/A", "reviews": 0, "is_closed": False})
 
         return results
 
@@ -571,6 +587,17 @@ class LeadHunter:
                         company["phone"] = phone
                         company["tech_stack"] = tech_stack
                         company.update(socials)
+
+                        # OPPORTUNITY DETECTION
+                        opps = []
+                        if company.get("reviews", 0) < 10:
+                            opps.append("Review Management (<10 Revs)")
+                        if company.get("website", "N/A") == "N/A":
+                            opps.append("Website Build")
+                        if company.get("is_closed", False):
+                            opps.append("Local SEO Fix (Closed)")
+                        
+                        company["opportunity"] = ", ".join(opps) if opps else "N/A"
                         
                         # X-RAY ENRICHMENT (The "Dual Scan" Feature)
                         founder_info = "N/A"
@@ -640,6 +667,7 @@ class LeadHunter:
                         "email": company_data["email"],
                         "founder": company_data.get("founder_match", "N/A"),
                         "tech": company_data.get("tech_stack", "Unknown"),
+                        "opportunity": company_data.get("opportunity", "N/A"),
                         "score": company_data["score"],
                         "decision": company_data.get("decision", "N/A"),
                         "summary": company_data["summary"][:100] + "..." 

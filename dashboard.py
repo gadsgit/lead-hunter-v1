@@ -165,7 +165,7 @@ with tab_exec:
             df = pd.DataFrame(st.session_state.results)
             
             # Reorder columns for "Hard Signals" visibility
-            desired_order = ["name", "founder", "tech", "website", "phone", "email", "score", "summary"]
+            desired_order = ["name", "opportunity", "founder", "tech", "website", "phone", "email", "score", "summary"]
             # Filter to existing columns
             cols = [c for c in desired_order if c in df.columns]
             # Add any remaining
