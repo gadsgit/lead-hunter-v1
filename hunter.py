@@ -595,53 +595,46 @@ class LeadHunter:
                         company["tech_stack"] = tech_stack
                         company.update(socials)
 
-                        # OPPORTUNITY DETECTION (User's Specific Pitch Logic)
-                        # OPPORTUNITY & BADGE DETECTION
-                        badges = []
-                        pitch_reasons = []
-
-                        # 1. GMB SIGNALS
+                        # OPPORTUNITY & BADGE DETECTION (3 Separate Columns)
+                        
+                        # Column 1: GMB STATUS
                         if company.get("is_unclaimed", False):
-                            badges.append("GMB: 🚩 (Unclaimed)")
-                            pitch_reasons.append("Claim GMB")
+                            company["gmb_status"] = "🚩 Unclaimed"
                         elif company.get("reviews", 0) < 10:
-                            badges.append("GMB: ⚠️ (Low Revs)")
-                            pitch_reasons.append("Review Mgmt")
+                            company["gmb_status"] = "⚠️ Low Revs"
                         else:
-                            badges.append("GMB: ✅ (Healthy)")
+                            company["gmb_status"] = "✅ Healthy"
 
-                        # 2. WEB / TECH SIGNALS
+                        # Column 2: WEB/TECH STATUS
                         if company.get("website", "N/A") == "N/A":
-                            badges.append("Web: 🚫 (No Site)")
-                            pitch_reasons.append("New Website")
+                            company["web_status"] = "🚫 No Site"
                         elif "Unknown" in tech_stack:
-                            badges.append("Web: 🕸️ (Basic)")
+                            company["web_status"] = "🕸️ Basic"
                         elif "Meta Pixel" not in tech_stack:
-                            badges.append("Web: 📉 (No Pixel)")
-                            pitch_reasons.append("Pixel/CRO")
+                            company["web_status"] = "📉 No Pixel"
                         else:
-                            badges.append("Web: 💎 (Modern)")
+                            company["web_status"] = "💎 Modern"
                             
-                        # 3. SPECIAL STATUS
+                        # Column 3: PITCH/INTENT
+                        pitch_reasons = []
+                        
+                        if company.get("is_unclaimed", False):
+                            pitch_reasons.append("Claim GMB")
+                        if company.get("reviews", 0) < 10:
+                            pitch_reasons.append("Review Mgmt")
+                        if company.get("website", "N/A") == "N/A":
+                            pitch_reasons.append("New Website")
+                        elif "Meta Pixel" not in tech_stack:
+                            pitch_reasons.append("Pixel/CRO")
                         if company.get("is_closed", False):
-                            badges.append("Status: 💀 (Closed)")
                             pitch_reasons.append("SEO Fix")
-
-                        # 4. INTENT (from Query)
                         if "emergency" in target_keyword.lower():
-                            badges.append("Intent: 🚨 (Urgent)")
-                            pitch_reasons.append("PPC Ads")
-
-                        # Combine into the column
-                        badge_str = " | ".join(badges)
-                        # We keep the pitch text separate or appended?
-                        # User asked for badges in the column to avoid reading sentences, 
-                        # but previous request asked for specific pitches. 
-                        # I will format it as: "BADGES\n\n🎯 Pitch: ..."
+                            pitch_reasons.append("🚨 PPC Ads")
                         
-                        pitch_str = ", ".join(list(set(pitch_reasons))) if pitch_reasons else "Lead Gen"
+                        company["pitch"] = ", ".join(list(set(pitch_reasons))) if pitch_reasons else "Lead Gen"
                         
-                        company["opportunity"] = f"{badge_str}  [🎯 {pitch_str}]"
+                        # Track source
+                        company["source"] = "Google Maps"
                         
                         # X-RAY ENRICHMENT (The "Dual Scan" Feature)
                         founder_info = "N/A"
@@ -707,11 +700,14 @@ class LeadHunter:
                     summary_lead = {
                         "keyword": target_keyword,
                         "name": company_data["name"],
+                        "source": company_data.get("source", "Google Maps"),
                         "website": company_data["website"],
                         "email": company_data["email"],
                         "founder": company_data.get("founder_match", "N/A"),
                         "tech": company_data.get("tech_stack", "Unknown"),
-                        "opportunity": company_data.get("opportunity", "N/A"),
+                        "gmb": company_data.get("gmb_status", "N/A"),
+                        "web": company_data.get("web_status", "N/A"),
+                        "pitch": company_data.get("pitch", "N/A"),
                         "score": company_data["score"],
                         "decision": company_data.get("decision", "N/A"),
                         "summary": company_data["summary"][:100] + "..." 
@@ -749,6 +745,7 @@ class LeadHunter:
                 
                 lead = {
                     "name": profile["name"],
+                    "source": "LinkedIn X-Ray",
                     "url": profile["url"],
                     "score": score,
                     "decision": decision,

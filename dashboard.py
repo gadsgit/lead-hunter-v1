@@ -182,7 +182,7 @@ with tab_exec:
             df = pd.DataFrame(st.session_state.results)
             
             # Reorder columns for "Hard Signals" visibility
-            desired_order = ["name", "opportunity", "founder", "tech", "website", "phone", "email", "score", "summary"]
+            desired_order = ["name", "source", "gmb", "web", "pitch", "founder", "tech", "website", "phone", "email", "score", "summary"]
             # Filter to existing columns
             cols = [c for c in desired_order if c in df.columns]
             # Add any remaining
@@ -195,7 +195,9 @@ with tab_exec:
                     "website": st.column_config.LinkColumn("Website"),
                     "founder": st.column_config.TextColumn("Founder Match"),
                     "tech": st.column_config.TextColumn("Tech Stack"),
-                    "opportunity": st.column_config.TextColumn("Sales Opportunity / Pitch", width="medium"),
+                    "gmb": st.column_config.TextColumn("GMB Status", width="small"),
+                    "web": st.column_config.TextColumn("Web Status", width="small"),
+                    "pitch": st.column_config.TextColumn("Pitch", width="medium"),
                 }
             )
             

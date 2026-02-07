@@ -149,7 +149,10 @@ class GSheetsHandler:
                     data.get('summary', 'N/A'),
                     data.get('founder_match', 'N/A'),
                     data.get('tech_stack', 'N/A'),
-                    data.get('opportunity', 'N/A')
+                    data.get('source', 'N/A'),
+                    data.get('gmb_status', 'N/A'),
+                    data.get('web_status', 'N/A'),
+                    data.get('pitch', 'N/A')
                 ]
                 # Targeting the main sheet (usually Sheet1)
                 self.safe_append(self.sheet, row)
