@@ -545,6 +545,147 @@ class LeadHunter:
 
         return results
 
+    async def scrape_linkedin_posts(self, page, keyword, is_dork=False, update_callback=None):
+        """
+        Scrapes LinkedIn POSTS from Google search results to find buying signals.
+        keyword: Either a plain keyword or a pre-built dork string
+        is_dork: If True, use keyword as-is. If False, generate dork from keyword.
+        Returns: (results, blocker_status)
+        """
+        print(f"🎯 Signal Scraper: Targeting LinkedIn Posts for: {keyword}")
+        if update_callback: update_callback(f"🎯 Signal Scraper: {keyword}")
+        
+        # Generate dork if not already provided
+        if is_dork:
+            dork = keyword
+        else:
+            dork = f'site:linkedin.com/posts "{keyword}"'
+            
+        search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
+        print(f"Search URL: {search_url}")
+        
+        blocker_status = "🟢 OK"
+        
+        try:
+            if update_callback: update_callback("📡 Navigating to Google...")
+            await page.goto(search_url, wait_until="networkidle", timeout=30000)
+        except:
+            if update_callback: update_callback("⚠️ Slow navigation, retrying...")
+            await page.goto(search_url)
+        
+        # STEALTH: Human "thinking" delay
+        await self.sleep_random(2, 4)
+        
+        # Handle Google Consent Screen
+        try:
+            consent_selectors = [
+                'button[aria-label="Accept all"]',
+                'button[aria-label="Agree"]',
+                'button:has-text("Accept all")',
+                'button:has-text("I agree")',
+                'div[role="button"]:has-text("Accept all")',
+            ]
+            for selector in consent_selectors:
+                if await page.query_selector(selector):
+                    msg = f"🔓 Handling consent screen..."
+                    print(msg)
+                    if update_callback: update_callback(msg)
+                    await page.click(selector)
+                    await self.sleep_random(2, 4)
+                    blocker_status = "🟡 Consent Handled"
+                    break
+        except:
+            pass
+        
+        # BLOCKER DETECTION
+        page_title = await page.title()
+        if "Before you continue" in page_title or "Captcha" in page_title:
+            blocker_status = "🔴 CAPTCHA/Consent Block"
+            msg = f"⚠️ Blocker Detected: {page_title}"
+            print(msg)
+            if update_callback: update_callback(msg)
+            return [], blocker_status
+        
+        # Wait for search results container
+        try:
+            if update_callback: update_callback("⏳ Waiting for search results...")
+            await page.wait_for_selector('div#search', timeout=10000)
+            if update_callback: update_callback("✅ Search results loaded")
+        except:
+            blocker_status = "🟡 Slow Results"
+            msg = "⚠️ Search results loading slowly..."
+            print(msg)
+            if update_callback: update_callback(msg)
+        
+        # Additional delay for content to render
+        await self.sleep_random(2, 3)
+        
+        results = []
+        links = await page.query_selector_all('a')
+        
+        print(f"Found {len(links)} total links on page")
+        if update_callback: update_callback(f"🔍 Scanning {len(links)} links...")
+        
+        processed_urls = set()
+        for link in links:
+            if len(results) >= self.limit:
+                break
+            
+            href = await link.get_attribute('href')
+            # Target both posts and profiles
+            if href and ("linkedin.com/posts/" in href or "linkedin.com/in/" in href):
+                # Clean Google redirect
+                if "/url?q=" in href:
+                    match = re.search(r'url\?q=([^&]*)', href)
+                    if match:
+                        href = match.group(1)
+                
+                clean_url = href.split('&')[0].split('?')[0]
+                if clean_url in processed_urls:
+                    continue
+                
+                processed_urls.add(clean_url)
+                
+                # Extract name and snippet from result container
+                try:
+                    container = await page.evaluate_handle('el => el.closest(".g, .MjjYud")', link)
+                    if container:
+                        h3 = await container.as_element().query_selector('h3')
+                        name = await h3.inner_text() if h3 else "LinkedIn User"
+                        
+                        # Extract snippet (this contains the buying signal!)
+                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M, .IsZvec')
+                        snippet = await snippet_el.inner_text() if snippet_el else "No snippet available"
+                    else:
+                        name = "LinkedIn User"
+                        snippet = "No snippet available"
+                except:
+                    name = "LinkedIn User"
+                    snippet = "No snippet available"
+                
+                # SIGNAL DETECTION
+                signal, signal_preview = self.detect_buying_signal(snippet)
+                
+                results.append({
+                    "name": name, 
+                    "url": clean_url, 
+                    "snippet": snippet,
+                    "signal": signal,
+                    "content_preview": signal_preview
+                })
+                
+                msg = f"{signal} | {name[:40]}"
+                print(msg)
+                if update_callback: update_callback(msg)
+
+        if not results:
+            blocker_status = "🟡 No Results"
+            msg = f"⚠️ No LinkedIn posts found. Page title: {page_title}"
+            print(msg)
+            if update_callback: update_callback(msg)
+        
+        return results, blocker_status
+
     async def score_linkedin_ai(self, profile_name, snippet_text):
         if not self.model:
             return "Pending", "Pending", "Pending", "Pending AI Review"
@@ -570,6 +711,26 @@ class LeadHunter:
             return data.get("score", 50), data.get("decision", "Neutral"), "LinkedIn", data.get("summary", "Analyzed Profile")
         except:
             return 50, "Neutral", "LinkedIn", "AI Score Failed"
+
+    def detect_buying_signal(self, snippet_text):
+        """
+        Detects buying signals from Google snippet text.
+        Returns: (signal_type, preview_text)
+        """
+        hiring_keywords = ["hiring", "looking for freelancer", "looking for a freelancer", "need a", "recruiting", "looking to hire"]
+        frustration_keywords = ["frustrated with", "issues with", "problem with", "struggling with", "having trouble", "doesn't work"]
+        advice_keywords = ["recommend a", "recommend an", "looking for agency", "looking for a", "need help with", "suggestions for", "anyone know"]
+        
+        snippet_lower = snippet_text.lower()
+        
+        if any(kw in snippet_lower for kw in hiring_keywords):
+            return "📢 Hiring", snippet_text[:100]
+        elif any(kw in snippet_lower for kw in frustration_keywords):
+            return "🛠️ Frustration", snippet_text[:100]
+        elif any(kw in snippet_lower for kw in advice_keywords):
+            return "💡 Advice", snippet_text[:100]
+        
+        return "👤 Profile", snippet_text[:100]
 
     async def run_mission(self, keyword=None, update_callback=None, progress_callback=None, enrich_with_xray=False):
         target_keyword = keyword if keyword else self.keyword
@@ -752,7 +913,7 @@ class LeadHunter:
         if update_callback: update_callback(f"Mission Complete: {target_keyword}")
         return final_leads
 
-    async def run_linkedin_mission(self, keyword=None, update_callback=None):
+    async def run_linkedin_mission(self, keyword=None, update_callback=None, signal_mode=False):
         target_keyword = keyword if keyword else self.keyword
         if not target_keyword:
             return []
@@ -760,10 +921,24 @@ class LeadHunter:
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
             
-            if update_callback: update_callback(f"Starting X-Ray Mission Control: {target_keyword}")
+            if update_callback: 
+                mode_text = "Signal Mode (Posts)" if signal_mode else "Profile Mode"
+                update_callback(f"Starting X-Ray Mission Control: {target_keyword} | {mode_text}")
             
-            # Pass raw keyword, let scraper generate the dork
-            profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=False)
+            # Detect if keyword is already a dork (contains "site:")
+            is_already_dork = "site:" in target_keyword.lower()
+            
+            # Choose scraping method based on signal_mode
+            if signal_mode:
+                # Use signal-based post scraping
+                profiles, blocker_status = await self.scrape_linkedin_posts(page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
+                
+                # Report blocker status
+                if update_callback: update_callback(f"Blocker Status: {blocker_status}")
+            else:
+                # Use traditional profile scraping
+                profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=is_already_dork)
+                blocker_status = "🟢 OK"  # Legacy mode doesn't return blocker status
             
             # CRITICAL: Close browser immediately after scraping profiles
             await browser.close()
@@ -777,11 +952,13 @@ class LeadHunter:
                 
                 lead = {
                     "name": profile["name"],
-                    "source": "LinkedIn X-Ray",
+                    "source": "LinkedIn Signal" if signal_mode else "LinkedIn X-Ray",
                     "url": profile["url"],
                     "score": score,
                     "decision": decision,
-                    "summary": summary
+                    "summary": summary,
+                    "signal": profile.get("signal", "👤 Profile"),
+                    "content_preview": profile.get("content_preview", profile["snippet"][:100])
                 }
 
                 # Save to specific LinkedIn tab, passing the keyword

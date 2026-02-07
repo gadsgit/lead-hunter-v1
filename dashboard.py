@@ -51,6 +51,10 @@ if 'results' not in st.session_state:
     st.session_state.results = []
 if 'stats' not in st.session_state:
     st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
+if 'blocker_status' not in st.session_state:
+    st.session_state.blocker_status = "🟢 Standby"
+if 'signal_mode' not in st.session_state:
+    st.session_state.signal_mode = False
 
 # --- 2. HELPERS ---
 def get_ram_status():
@@ -64,11 +68,12 @@ def get_ram_status():
         return 0
 
 # Top Intelligence Bar
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("System Status", "HUNTING" if st.session_state.is_running else "STANDBY")
 c2.metric("Leads Found", st.session_state.stats['found'])
 c3.metric("Inserted", st.session_state.stats['inserted'])
 c4.metric("Duplicates", st.session_state.stats['duplicates'])
+c5.metric("Blocker Status", st.session_state.get('blocker_status', '🟢 Standby'))
 ram = get_ram_status()
 st.sidebar.metric("RAM Health", f"{ram:.0f} MB", "Safe" if ram < 450 else "High", delta_color="normal" if ram < 450 else "inverse")
 
@@ -101,7 +106,32 @@ with tab_plan:
                 st.session_state.target_query = "Dentist Open Now New York"
                 st.session_state.search_mode = "Google Maps (Local)"
                 st.rerun()
+        
+        st.write("---")
+        st.subheader("🎯 Buying Signal Presets")
+        st.caption("Target high-intent LinkedIn posts with buying signals")
+        c_s1, c_s2, c_s3 = st.columns(3)
+        if c_s1.button("📢 Hiring Signal"):
+            st.session_state.target_query = 'site:linkedin.com/posts "hiring" "freelancer" "marketing"'
+            st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
+            st.session_state.signal_mode = True
+            st.rerun()
+        if c_s2.button("🛠️ Frustration Signal"):
+            st.session_state.target_query = 'site:linkedin.com/posts "frustrated with" "google ads"'
+            st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
+            st.session_state.signal_mode = True
+            st.rerun()
+        if c_s3.button("💡 Advice Signal"):
+            st.session_state.target_query = 'site:linkedin.com/posts "recommend a" "shopify agency"'
+            st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
+            st.session_state.signal_mode = True
+            st.rerun()
                 
+        # Signal Mode Toggle
+        signal_mode = st.toggle("🎯 Signal Mode (Posts)", value=st.session_state.get('signal_mode', False),
+            help="Scrape LinkedIn POSTS for buying signals instead of profiles")
+        st.session_state.signal_mode = signal_mode
+        
         mode = st.radio("Select Strategy", 
                  ["Dual-Scan (Deep Hunt)", "Google Maps (Local)", "LinkedIn X-Ray (Direct)"],
                  key="search_mode",
@@ -192,7 +222,7 @@ with tab_exec:
             df = pd.DataFrame(st.session_state.results)
             
             # Reorder columns for "Hard Signals" visibility
-            desired_order = ["name", "source", "gmb", "web", "pitch", "founder", "tech", "website", "phone", "email", "score", "summary"]
+            desired_order = ["name", "source", "signal", "content_preview", "gmb", "web", "pitch", "founder", "tech", "website", "phone", "email", "score", "summary"]
             # Filter to existing columns
             cols = [c for c in desired_order if c in df.columns]
             # Add any remaining
@@ -208,6 +238,8 @@ with tab_exec:
                     "gmb": st.column_config.TextColumn("GMB Status", width="small"),
                     "web": st.column_config.TextColumn("Web Status", width="small"),
                     "pitch": st.column_config.TextColumn("Pitch", width="medium"),
+                    "signal": st.column_config.TextColumn("Signal", width="small"),
+                    "content_preview": st.column_config.TextColumn("Preview", width="medium"),
                 }
             )
             
@@ -223,7 +255,18 @@ if st.session_state.is_running:
         print(msg)
         st.session_state.logs.append(msg)
         
-        if "Discovered:" in msg or "Scraped:" in msg:
+        # Update blocker status from logs
+        if "Blocker Status:" in msg:
+            blocker = msg.split("Blocker Status:")[1].strip()
+            st.session_state.blocker_status = blocker
+        elif "CAPTCHA" in msg or "Consent Block" in msg:
+            st.session_state.blocker_status = "🔴 Blocked"
+        elif "Consent Handled" in msg:
+            st.session_state.blocker_status = "🟡 Consent"
+        elif "No Results" in msg:
+            st.session_state.blocker_status = "🟡 No Results"
+        
+        if "Discovered:" in msg or "Scraped:" in msg or "📢" in msg or "🛠️" in msg or "💡" in msg:
             st.session_state.stats['found'] += 1
         if "Saved" in msg or "SAVED" in msg:
             st.session_state.stats['inserted'] += 1
@@ -253,7 +296,11 @@ if st.session_state.is_running:
                 leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=False))
             else:
                 # LinkedIn X-Ray
-                leads = asyncio.run(hunter.run_linkedin_mission(keyword=st.session_state.target_query, update_callback=update_ui))
+                leads = asyncio.run(hunter.run_linkedin_mission(
+                    keyword=st.session_state.target_query, 
+                    update_callback=update_ui,
+                    signal_mode=st.session_state.get('signal_mode', False)
+                ))
             
             all_leads.extend(leads)
             
