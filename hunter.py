@@ -468,16 +468,37 @@ class LeadHunter:
             
         search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
         
+        print(f"LinkedIn X-Ray URL: {search_url}")
+        
         try:
-            await page.goto(search_url, wait_until="networkidle")
+            await page.goto(search_url, wait_until="networkidle", timeout=30000)
         except:
             await page.goto(f"https://www.google.com/search?q={dork.replace(' ', '+')}")
+        
+        # Handle Google Consent Screen
+        try:
+            consent_selectors = [
+                'button[aria-label="Accept all"]',
+                'button[aria-label="Agree"]',
+                'button:has-text("Accept all")',
+                'button:has-text("I agree")',
+            ]
+            for selector in consent_selectors:
+                if await page.query_selector(selector):
+                    print(f"Found consent screen, clicking {selector}...")
+                    await page.click(selector)
+                    await self.sleep_random(2, 4)
+                    break
+        except:
+            pass
         
         # Jitter: Random sleep between searching and processing
         await self.sleep_random(5, 8) 
 
         results = []
         links = await page.query_selector_all('a')
+        
+        print(f"Found {len(links)} total links on Google results page")
         
         processed_urls = set()
         for link in links:
