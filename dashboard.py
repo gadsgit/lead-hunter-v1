@@ -195,11 +195,12 @@ with tab_exec:
                     "website": st.column_config.LinkColumn("Website"),
                     "founder": st.column_config.TextColumn("Founder Match"),
                     "tech": st.column_config.TextColumn("Tech Stack"),
+                    "opportunity": st.column_config.TextColumn("Sales Opportunity / Pitch", width="medium"),
                 }
             )
             
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download CSV", csv, "leads.csv", "text/csv")
+            st.download_button("📥 Download Lead List (CSV)", csv, "leads.csv", "text/csv", type="primary")
         else:
             results_placeholder.info("No leads captured in this session.")
 
