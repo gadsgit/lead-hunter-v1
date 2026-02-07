@@ -596,36 +596,52 @@ class LeadHunter:
                         company.update(socials)
 
                         # OPPORTUNITY DETECTION (User's Specific Pitch Logic)
-                        opps = []
-                        
-                        # 0. Intent-Based Opportunities (Based on Query)
-                        if "emergency" in target_keyword.lower():
-                            opps.append("PPC / Google Ads (Urgent need)")
-                        if "new" in target_keyword.lower() and "york" not in target_keyword.lower(): # Avoid 'New York' false positives
-                            opps.append("Launch Marketing / Google Business Setup")
+                        # OPPORTUNITY & BADGE DETECTION
+                        badges = []
+                        pitch_reasons = []
 
-                        # 1. GMB Status -> "Review Management"
-                        if company.get("reviews", 0) < 10:
-                            opps.append("Automated Review Management")
-                        if company.get("is_unclaimed", False): 
-                            opps.append("Automated Review Management / Claim GMB")
-                            
-                        # 2. Tech Stack -> "Performance Marketing / CRO"
+                        # 1. GMB SIGNALS
+                        if company.get("is_unclaimed", False):
+                            badges.append("GMB: 🚩 (Unclaimed)")
+                            pitch_reasons.append("Claim GMB")
+                        elif company.get("reviews", 0) < 10:
+                            badges.append("GMB: ⚠️ (Low Revs)")
+                            pitch_reasons.append("Review Mgmt")
+                        else:
+                            badges.append("GMB: ✅ (Healthy)")
+
+                        # 2. WEB / TECH SIGNALS
                         if company.get("website", "N/A") == "N/A":
-                            opps.append("High-Converting Landing Page Build")
+                            badges.append("Web: 🚫 (No Site)")
+                            pitch_reasons.append("New Website")
+                        elif "Unknown" in tech_stack:
+                            badges.append("Web: 🕸️ (Basic)")
                         elif "Meta Pixel" not in tech_stack:
-                            opps.append("Performance Marketing / CRO (No Pixel)")
+                            badges.append("Web: 📉 (No Pixel)")
+                            pitch_reasons.append("Pixel/CRO")
+                        else:
+                            badges.append("Web: 💎 (Modern)")
                             
-                        # 3. Closed -> "Local SEO Fix"
+                        # 3. SPECIAL STATUS
                         if company.get("is_closed", False):
-                            opps.append("Local SEO Fix (Closed)")
-                            
-                        # 4. Founder Match -> "Direct Outreach"
-                        if company.get("founder_match", "N/A") != "N/A" and company.get("founder_match") != "Not Found":
-                            opps.append("Direct Outreach / LinkedIn DM")
+                            badges.append("Status: 💀 (Closed)")
+                            pitch_reasons.append("SEO Fix")
+
+                        # 4. INTENT (from Query)
+                        if "emergency" in target_keyword.lower():
+                            badges.append("Intent: 🚨 (Urgent)")
+                            pitch_reasons.append("PPC Ads")
+
+                        # Combine into the column
+                        badge_str = " | ".join(badges)
+                        # We keep the pitch text separate or appended?
+                        # User asked for badges in the column to avoid reading sentences, 
+                        # but previous request asked for specific pitches. 
+                        # I will format it as: "BADGES\n\n🎯 Pitch: ..."
                         
-                        # Deduplicate and join
-                        company["opportunity"] = ", ".join(list(set(opps))) if opps else "Lead Gen Automation"
+                        pitch_str = ", ".join(list(set(pitch_reasons))) if pitch_reasons else "Lead Gen"
+                        
+                        company["opportunity"] = f"{badge_str}  [🎯 {pitch_str}]"
                         
                         # X-RAY ENRICHMENT (The "Dual Scan" Feature)
                         founder_info = "N/A"
