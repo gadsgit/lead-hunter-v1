@@ -697,6 +697,32 @@ class LeadHunter:
             
             await self.sleep_random(5, 8)
             
+            # Handle Google Consent Screen (if any)
+            try:
+                consent_selectors = [
+                    'button[aria-label="Accept all"]',
+                    'button[aria-label="Agree"]',
+                    'button:has-text("Accept all")',
+                    'button:has-text("I agree")',
+                    'div[role="button"]:has-text("Accept all")',
+                ]
+                for selector in consent_selectors:
+                    if await page.query_selector(selector):
+                        msg = f"Found consent screen, clicking {selector}..."
+                        print(msg)
+                        if update_callback: update_callback(msg)
+                        await page.click(selector)
+                        await self.sleep_random(2, 4)
+                        break
+            except:
+                pass
+
+            # Check for CAPTCHA/Blocking
+            page_title = await page.title()
+            if "Before you continue" in page_title or "Captcha" in page_title:
+                print(f"⚠️ CAPTCHA/Consent block detected: {page_title}")
+                if update_callback: update_callback(f"⚠️ Google Blocked Request ({page_title})")
+
             links_elements = await page.query_selector_all('a')
             profiles = []
             processed_urls = set()
@@ -731,6 +757,11 @@ class LeadHunter:
             # FREE RAM
             await browser.close()
             
+            if not profiles:
+                 msg = f"⚠️ No profiles found via X-Ray. Page Title: {page_title}"
+                 print(msg)
+                 if update_callback: update_callback(msg)
+
             final_leads = []
             for i, profile in enumerate(profiles):
                 if update_callback: update_callback(f"AI Analyzing: {profile['name']}")
@@ -752,7 +783,7 @@ class LeadHunter:
                 self.gsheets.save_lead(lead, query=dork_query, source=source)
                 final_leads.append(lead)
                 
-            if update_callback: update_callback(f"Mission Done. Leads saved to GSheets.")
+            if update_callback: update_callback(f"Mission Done. {len(final_leads)} Leads saved to GSheets.")
             return final_leads
 
     def detect_source(self, query):
