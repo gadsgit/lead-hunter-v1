@@ -141,6 +141,16 @@ with tab_plan:
     with col_settings:
         st.subheader("⚙️ Parameters")
         st.slider("Scrape Limit", 5, 50, 10, key="limit")
+        
+        # Batch Mode
+        batch_mode = st.checkbox("🔄 Batch Mode (Multiple Cycles)", value=False, 
+                                 help="Run multiple scraping cycles with 30s cooldown between each. Safer for large datasets.")
+        if batch_mode:
+            st.slider("Batch Cycles", 1, 5, 2, key="batch_cycles", 
+                     help="Number of cycles to run. Total leads = Limit × Cycles")
+        else:
+            st.session_state.batch_cycles = 1
+            
         st.info("Dual-Scan requires 2x API calls (Google + LinkedIn) per lead.")
         
         st.write("---")
@@ -229,15 +239,30 @@ if st.session_state.is_running:
         mode = st.session_state.search_mode
         update_ui(f"📡 Mode: {mode}")
         
-        if mode == "Dual-Scan (Deep Hunt)":
-            leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=True))
-        elif mode == "Google Maps (Local)":
-            leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=False))
-        else:
-            # LinkedIn X-Ray
-            leads = asyncio.run(hunter.run_linkedin_mission(keyword=st.session_state.target_query, update_callback=update_ui))
+        # Batch Mode Execution
+        batch_cycles = st.session_state.get('batch_cycles', 1)
+        all_leads = []
+        
+        for cycle in range(batch_cycles):
+            if batch_cycles > 1:
+                update_ui(f"🔄 Starting Batch Cycle {cycle + 1}/{batch_cycles}")
             
-        st.session_state.results = leads
+            if mode == "Dual-Scan (Deep Hunt)":
+                leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=True))
+            elif mode == "Google Maps (Local)":
+                leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=False))
+            else:
+                # LinkedIn X-Ray
+                leads = asyncio.run(hunter.run_linkedin_mission(keyword=st.session_state.target_query, update_callback=update_ui))
+            
+            all_leads.extend(leads)
+            
+            # Cooldown between cycles (except after last cycle)
+            if cycle < batch_cycles - 1:
+                update_ui(f"⏳ Cooldown: 30s before next cycle...")
+                time.sleep(30)
+            
+        st.session_state.results = all_leads
         st.session_state.is_running = False
         st.success("Mission Complete!")
         st.balloons()
