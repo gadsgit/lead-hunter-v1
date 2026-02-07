@@ -12,15 +12,29 @@ if os.path.exists(".env.local"):
 st.set_page_config(page_title="Hunter Intelligence Console", layout="wide", page_icon="🏹")
 
 # --- CUSTOM STYLING ---
+st.title("🏹 Lead Hunter - Unified Intelligence Console")
+
+# --- CUSTOM STYLING ---
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: #ffffff; }
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #00FF00; }
-    div[data-testid="stMetricLabel"] { font-size: 14px; color: #aaaaaa; }
-    .stButton>button { border-radius: 5px; font-weight: bold; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #1E1E1E; border-radius: 4px; gap: 1px; padding-top: 10px; padding-bottom: 10px; }
+    /* Top Bar Metrics (Big & Bold) */
+    div[data-testid="stMetricValue"] { font-size: 36px !important; color: #00FF00; font-weight: 800; }
+    div[data-testid="stMetricLabel"] { font-size: 18px !important; color: #aaaaaa; }
+    
+    /* Input Labels */
+    .stTextInput > label, .stSelectbox > label, .stRadio > label { font-size: 20px !important; font-weight: 600; }
+    
+    /* Tabs (Large & Clickable) */
+    .stTabs [data-baseweb="tab-list"] { gap: 20px; }
+    .stTabs [data-baseweb="tab"] { height: 60px; font-size: 20px !important; background-color: #1E1E1E; border-radius: 8px; padding: 10px 20px; }
     .stTabs [aria-selected="true"] { background-color: #FF4B4B; color: white; }
+    
+    /* Buttons */
+    .stButton>button { font-size: 22px !important; height: 55px !important; font-weight: bold; border-radius: 8px; }
+    
+    /* Dataframes - keep standard for readability */
+    div[data-testid="stDataFrame"] { font-size: 14px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -49,16 +63,14 @@ def get_ram_status():
     except:
         return 0
 
-# --- 3. THE UI ("Mission Control") ---
-st.title("🏹 Unified Intelligence Console")
-
 # Top Intelligence Bar
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("System Status", "HUNTING" if st.session_state.is_running else "STANDBY")
 c2.metric("Leads Found", st.session_state.stats['found'])
-c3.metric("Duplicates Skipped", st.session_state.stats['duplicates'])
+c3.metric("Inserted", st.session_state.stats['inserted'])
+c4.metric("Duplicates", st.session_state.stats['duplicates'])
 ram = get_ram_status()
-c4.metric("RAM Health", f"{ram:.0f} MB", "Safe" if ram < 450 else "High", delta_color="normal" if ram < 450 else "inverse")
+st.sidebar.metric("RAM Health", f"{ram:.0f} MB", "Safe" if ram < 450 else "High", delta_color="normal" if ram < 450 else "inverse")
 
 # Main Workspace
 tab_plan, tab_exec = st.tabs(["⚙️ Configure Mission", "📡 Live Intelligence Feed"])
@@ -81,15 +93,33 @@ with tab_plan:
         if mode == "LinkedIn X-Ray (Direct)":
             with st.expander("🛠️ Boolean String Builder", expanded=True):
                 c_role, c_niche, c_loc = st.columns(3)
-                role = c_role.selectbox("Role", ["CEO", "Founder", "Owner", "Director", "Managing Director"])
-                niche = c_niche.text_input("Niche/Industry", "SaaS")
-                loc = c_loc.text_input("Location", "USA")
+                role = c_role.selectbox("Role", ["Any", "CEO", "Founder", "Owner", "Director", "Managing Director"])
+                niche = c_niche.text_input("Niche", "", placeholder="Leave empty for Any")
+                loc = c_loc.text_input("Location", "", placeholder="Leave empty for Any")
                 
-                generated_dork = f'site:linkedin.com/in ("{role}") AND "{niche}" AND "{loc}"'
+                # Dynamic Dork Construction
+                parts = []
+                if role and role != "Any": 
+                    parts.append(f'("{role}")')
+                if niche.strip(): 
+                    parts.append(f'"{niche.strip()}"')
+                if loc.strip(): 
+                    parts.append(f'"{loc.strip()}"')
+                
+                # Join with AND
+                if parts:
+                    query_body = " AND ".join(parts)
+                    generated_dork = f'site:linkedin.com/in {query_body}'
+                else:
+                    generated_dork = 'site:linkedin.com/in'
+
                 st.code(generated_dork, language="text")
-                if st.button("Apply to Target"):
-                    st.session_state.target_query = generated_dork
-                    st.rerun()
+                
+                # Callback to avoid "set state after instantiation" error
+                def apply_dork(dork):
+                    st.session_state.target_query = dork
+                
+                st.button("Apply to Target", on_click=apply_dork, args=(generated_dork,))
 
     with col_settings:
         st.subheader("⚙️ Parameters")
