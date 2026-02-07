@@ -146,7 +146,9 @@ class GSheetsHandler:
                     data.get('facebook', 'N/A'),
                     data.get('score', 0),
                     data.get('decision', 'N/A'),
-                    data.get('summary', 'N/A')
+                    data.get('summary', 'N/A'),
+                    data.get('founder_match', 'N/A'),
+                    data.get('tech_stack', 'N/A')
                 ]
                 # Targeting the main sheet (usually Sheet1)
                 self.safe_append(self.sheet, row)

@@ -224,25 +224,39 @@ class LeadHunter:
 
         return results
 
+    def detect_tech_stack(self, html):
+        stack = []
+        if "wp-content" in html: stack.append("WordPress")
+        if "shopify" in html: stack.append("Shopify")
+        if "fbevents.js" in html or "facebook-domain-verification" in html: stack.append("Meta Pixel")
+        if "googletagmanager" in html: stack.append("GTM")
+        if "wix.com" in html: stack.append("Wix")
+        if "squarespace" in html: stack.append("Squarespace")
+        return ", ".join(stack) if stack else "Unknown"
+
     async def scrape_website(self, page, url):
         if not url or url == "N/A":
-            return "", [], {}, "N/A"
+            return "", [], {}, "N/A", "Unknown"
 
         print(f"Scraping website: {url}")
         content = ""
         emails = []
         socials = {}
         phone = "N/A"
+        tech_stack = "Unknown"
 
         try:
             await page.goto(url, wait_until="networkidle", timeout=30000)
             await self.sleep_random(2, 4)
             
+            # Extract HTML for Tech Stack and Emails
+            html = await page.content()
+            tech_stack = self.detect_tech_stack(html)
+            
             # Extract text for scoring
             content = await page.evaluate("() => document.body.innerText")
             
             # Extract emails
-            html = await page.content()
             emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
             emails = [e for e in emails if not e.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg'))]
             
@@ -286,10 +300,10 @@ class LeadHunter:
                 except Exception as ex:
                     print(f"  -> Contact jump info: {ex}")
             
-            return content[:5000], emails, socials, phone # First 5000 chars for LLM
+            return content[:5000], emails, socials, phone, tech_stack # First 5000 chars for LLM
         except Exception as e:
             print(f"Error scraping {url}: {e}")
-            return "", [], {}, "N/A"
+            return "", [], {}, "N/A", "Unknown"
 
     async def search_linkedin(self, page, company_name):
         print(f"Searching LinkedIn for: {company_name}")
@@ -471,7 +485,8 @@ class LeadHunter:
                 results.append({"name": name, "url": clean_url, "snippet": snippet})
                 msg = f"💼 Scraped LinkedIn: {name}"
                 print(msg)
-                if update_callback: update_callback(msg)
+                # The original code had update_callback here, but it's not passed to this method.
+                # If it were, it would be: if update_callback: update_callback(msg)
 
         return results
 
@@ -501,7 +516,7 @@ class LeadHunter:
         except:
             return 50, "Neutral", "LinkedIn", "AI Score Failed"
 
-    async def run_mission(self, keyword=None, update_callback=None, progress_callback=None):
+    async def run_mission(self, keyword=None, update_callback=None, progress_callback=None, enrich_with_xray=False):
         target_keyword = keyword if keyword else self.keyword
         if not target_keyword:
             print("❌ No keyword provided for mission.")
@@ -522,7 +537,6 @@ class LeadHunter:
             finally:
                 await browser.close()
 
-        # Step 2: Atomic Scraping (One Browser Session per Lead)
         # Step 2: Atomic Processing (Scrape -> Score -> Save)
         final_leads = []
         count = 0
@@ -534,7 +548,7 @@ class LeadHunter:
                 if update_callback: update_callback(f"Skipping {basic_info['name']} (Duplicate)")
                 continue
 
-            if update_callback: update_callback(f"processing Lead {count}/{total}: {basic_info['name']}")
+            if update_callback: update_callback(f"Processing Lead {count}/{total}: {basic_info['name']}")
             
             # ATOMIC SESSION
             company_data = None
@@ -551,11 +565,34 @@ class LeadHunter:
                     try:
                         company = basic_info.copy()
                         # Scrape with strict timeout
-                        website_content, emails, socials, phone = await self.scrape_website(page, company["website"])
+                        website_content, emails, socials, phone, tech_stack = await self.scrape_website(page, company["website"])
                         
                         company["email"] = ", ".join(emails) if emails else "N/A"
                         company["phone"] = phone
+                        company["tech_stack"] = tech_stack
                         company.update(socials)
+                        
+                        # X-RAY ENRICHMENT (The "Dual Scan" Feature)
+                        founder_info = "N/A"
+                        if enrich_with_xray:
+                            # If we didn't find a direct LinkedIn link, try X-Ray specifically for the Founder
+                            xray_dork = f'site:linkedin.com/in "CEO" OR "Founder" "{company["name"]}"'
+                            if update_callback: update_callback(f"   🔍 X-Raying Founder for: {company['name']}")
+                            
+                            # Reuse the existing page for X-Ray
+                            # Temporarily set limit to 1 for founder search
+                            original_limit = self.limit
+                            self.limit = 1 
+                            xray_results = await self.scrape_linkedin_profiles(page, xray_dork)
+                            self.limit = original_limit # Reset limit
+                            
+                            if xray_results:
+                                founder = xray_results[0] # Take top result
+                                founder_info = f"{founder['name']} ({founder['url']})"
+                                company['founder_match'] = founder_info
+                                if update_callback: update_callback(f"   👤 Found: {founder['name']}")
+                            else:
+                                company['founder_match'] = "Not Found"
                         
                         if company.get("linkedin") == "N/A":
                             found_li = await self.search_linkedin(page, company["name"])
@@ -601,6 +638,8 @@ class LeadHunter:
                         "name": company_data["name"],
                         "website": company_data["website"],
                         "email": company_data["email"],
+                        "founder": company_data.get("founder_match", "N/A"),
+                        "tech": company_data.get("tech_stack", "Unknown"),
                         "score": company_data["score"],
                         "decision": company_data.get("decision", "N/A"),
                         "summary": company_data["summary"][:100] + "..." 
@@ -799,12 +838,14 @@ class LeadHunter:
 
     async def run_smart_mission(self, query, update_callback=None):
         source = self.detect_source(query)
+        # If it looks like a business search, we default to the "Enriched" Google Mission now
         if source == "linkedin":
             if update_callback: update_callback(f"🧠 Smart Routing: Detected LinkedIn target for '{query}'")
             return await self.run_linkedin_mission(query, update_callback)
         else:
             if update_callback: update_callback(f"🧠 Smart Routing: Detected Local Business target for '{query}'")
-            return await self.run_mission(query, update_callback)
+            # Smart mode now defaults to Dual Scan (Enrichment)
+            return await self.run_mission(query, update_callback, enrich_with_xray=True)
 
 if __name__ == "__main__":
     # Test run
