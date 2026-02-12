@@ -230,21 +230,29 @@ class GSheetsHandler:
 
     def get_existing_leads(self):
         """
-        Returns a set of all websites already in the sheet.
-        Using a 'set' makes the check nearly instant.
+        Returns a dictionary with 'urls' and 'names' sets from the sheet.
         """
         if not self.sheet:
             self.connect()
             
         try:
-            # Get all values from the 'Website' column (Column C is index 3)
-            # Since we added Keyword at Column A, Website moved to Column C
-            existing_urls = self.sheet.col_values(3)
-            # Filter out empty or header values if necessary, though set handles duplicates
-            return set(url.strip() for url in existing_urls if url.strip() and url != "Website")
+            all_vals = self.sheet.get_all_values()
+            if not all_vals or len(all_vals) < 2:
+                return {"urls": set(), "names": set()}
+            
+            # Column B is index 1 (Name), Column C is index 2 (Website)
+            names = set()
+            urls = set()
+            for row in all_vals[1:]: # Skip header
+                if len(row) > 1: names.add(row[1].strip())
+                if len(row) > 2:
+                    url = row[2].strip()
+                    if url.lower() not in ["n/a", "unknown", "none", ""]:
+                        urls.add(url)
+            return {"urls": urls, "names": names}
         except Exception as e:
             print(f"Could not load history: {e}")
-            return set()
+            return {"urls": set(), "names": set()}
 
     def get_finished_missions(self):
         """Returns a set of all search queries already completed."""

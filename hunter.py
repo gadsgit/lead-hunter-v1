@@ -457,13 +457,16 @@ class LeadHunter:
             
         # If it's a niche search, add decision maker terms
         if len(keyword_clean.split()) > 2:
-            # Broader dork for niches
-            base_dork = f'site:linkedin.com/in/ "{keyword_clean}" ("CEO" OR "Founder" OR "Owner" OR "Co-Founder")'
+            # Flexible dork: try the phrase in quotes first, but also without to catch variations
+            # We use the niche + titles
+            base_dork = f'site:linkedin.com/in/ "{keyword_clean}"'
+            # OR broader:
+            # site:linkedin.com/in/ "Cushions" "manufacturer" "New Jersey"
         else:
             base_dork = f'site:linkedin.com/in/ "{keyword}"'
         
-        # Exclude common noise to save RAM and focus on real people
-        final_dork = f"{base_dork} -intitle:jobs -inurl:jobs -inurl:posts"
+        # Add titles for decision makers
+        final_dork = f'{base_dork} ("CEO" OR "Founder" OR "Owner") -intitle:jobs -inurl:jobs'
         return final_dork
 
     async def scrape_linkedin_profiles(self, page, keyword, is_dork=False):
@@ -496,6 +499,8 @@ class LeadHunter:
                 'button[aria-label="Agree"]',
                 'button:has-text("Accept all")',
                 'button:has-text("I agree")',
+                'button:has-text("Accept")',
+                'div[role="button"]:has-text("Accept all")',
             ]
             for selector in consent_selectors:
                 if await page.query_selector(selector):
@@ -542,10 +547,11 @@ class LeadHunter:
                         name = await h3.inner_text() if h3 else "LinkedIn User"
                         
                         # Extract the snippet (usually a div with specific container class)
-                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M')
+                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M, .IsZvec, .MUY17c')
                         snippet = await snippet_el.inner_text() if snippet_el else "No snippet available"
                     else:
-                        name = "LinkedIn User"
+                        # Fallback for name from link itself
+                        name = await link.inner_text()
                         snippet = "No snippet available"
                 except:
                     name = "LinkedIn User"
@@ -775,7 +781,9 @@ class LeadHunter:
 
         # 0. Checkpoint: Load History
         print("Loading mission history...")
-        existing_websites = self.gsheets.get_existing_leads()
+        history = self.gsheets.get_existing_leads()
+        existing_websites = history.get("urls", set())
+        existing_names = history.get("names", set())
 
         # Step 1: Get list of leads from Google Maps
         if update_callback: update_callback(f"Scanning Google Maps for: {target_keyword}...")
@@ -795,8 +803,20 @@ class LeadHunter:
         
         for basic_info in basic_companies:
             count += 1
-            if basic_info.get("website") in existing_websites:
-                if update_callback: update_callback(f"Skipping {basic_info['name']} (Duplicate)")
+            website = basic_info.get("website", "N/A")
+            name = basic_info.get("name", "Unknown")
+            
+            # Smart Duplicate Check
+            is_duplicate = False
+            if website.lower() not in ["n/a", "unknown", "none", ""] and website in existing_websites:
+                is_duplicate = True
+                msg = f"Skipping {name} (Duplicate Website)"
+            elif name in existing_names:
+                is_duplicate = True
+                msg = f"Skipping {name} (Duplicate Name)"
+                
+            if is_duplicate:
+                if update_callback: update_callback(msg)
                 continue
 
             if update_callback: update_callback(f"Processing Lead {count}/{total}: {basic_info['name']}")
