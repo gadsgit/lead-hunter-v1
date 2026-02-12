@@ -579,12 +579,21 @@ class LeadHunter:
         
         processed_urls = set()
         li_links = 0
+        
+        # Diagnostic: Print the first 10 hrefs to see what Google is giving us
+        for i, link in enumerate(links[:10]):
+            try:
+                h = await link.get_attribute('href')
+                print(f"DEBUG Link {i}: {h[:100] if h else 'None'}")
+            except: pass
+
         for link in links:
             if len(results) >= self.limit:
                 break
             
             href = await link.get_attribute('href')
-            if href and "linkedin.com/in/" in href:
+            # Moar flexible: catch profiles, companies, or public profiles
+            if href and ("linkedin.com/in/" in href or "linkedin.com/company/" in href or "linkedin.com/pub/" in href):
                 li_links += 1
                 # Clean Google redirect
                 if "/url?q=" in href:
@@ -1096,12 +1105,20 @@ class LeadHunter:
                     if not profiles:
                         # --- ATTEMPT 3: NATURAL LANGUAGE FALLBACK ---
                         if update_callback: update_callback("🧬 Aggressive Mode: Trying Natural Language Search...")
-                        # Search without site: filter, just look for linkedin profiles naturally
-                        nat_query = f'"{target_keyword}" linkedin profiles'
+                        # Search without site: filter, and WITHOUT strict quotes for the full phrase
+                        nat_query = f'{target_keyword} linkedin profiles'
                         profiles = await self.scrape_linkedin_profiles(page, nat_query, is_dork=False)
                         
                         if not profiles:
-                            blocker_status = "🟡 No Results Found"
+                            # --- ATTEMPT 4: NUCLEAR HUNT FALLBACK ---
+                            if update_callback: update_callback("☢️ Final Attempt: Nuclear LinkedIn Hunt...")
+                            nuke_query = f'{target_keyword} linkedin'
+                            profiles = await self.scrape_linkedin_profiles(page, nuke_query, is_dork=True)
+                            
+                            if not profiles:
+                                blocker_status = "🟡 No Results Found"
+                            else:
+                                blocker_status = "🟢 OK (Nuclear Hunt)"
                         else:
                             blocker_status = "🟢 OK (Natural Hunt)"
                     else:
