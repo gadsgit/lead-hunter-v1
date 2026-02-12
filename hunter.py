@@ -28,7 +28,13 @@ except ImportError:
 
 load_dotenv()
 
-# List of common User-Agents for randomization
+try:
+    from fake_useragent import UserAgent
+    ua_generator = UserAgent(browsers=['chrome', 'firefox', 'edge'])
+except ImportError:
+    ua_generator = None
+
+# List of common User-Agents for randomization (Fallback)
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
@@ -56,6 +62,17 @@ class LeadHunter:
 
     async def sleep_random(self, min_s=2, max_s=5):
         await asyncio.sleep(random.uniform(min_s, max_s))
+
+    def get_stealth_headers(self):
+        """Generates real-world browser headers to bypass bot detection."""
+        user_agent = ua_generator.random if ua_generator else random.choice(USER_AGENTS)
+        return {
+            "User-Agent": user_agent,
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": "https://www.google.com/",
+            "DNT": "1"  # Do Not Track request
+        }
 
     def truncate_for_ai(self, html_content, max_chars=5000):
         """Clean and slice text so Gemini doesn't choke on RAM."""
@@ -477,8 +494,10 @@ class LeadHunter:
             print(f"Launch Error with custom path: {repr(e)}")
             browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         
+        headers = self.get_stealth_headers()
         context = await browser.new_context(
-            user_agent=random.choice(USER_AGENTS),
+            user_agent=headers["User-Agent"],
+            extra_http_headers=headers,
             viewport={'width': random.randint(1280, 1440), 'height': random.randint(720, 900)}
         )
         page = await context.new_page()

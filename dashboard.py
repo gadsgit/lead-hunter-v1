@@ -67,6 +67,28 @@ def get_ram_status():
     except:
         return 0
 
+def generate_dynamic_queries(mission_topic, location=""):
+    """Generates a fresh, professional X-Ray query variations."""
+    # Bucket 1: Variations of the niche
+    niches = [mission_topic, f"{mission_topic} wholesale", f"{mission_topic} distributor", f"{mission_topic} manufacturer"]
+    
+    # Bucket 2: Different "Footprints" to find contact info
+    footprints = [
+        'site:linkedin.com/in/ "owner"',
+        'site:linkedin.com/in/ "sales manager"',
+        '"@gmail.com" OR "@outlook.com"',
+        '"contact us" "phone"',
+        'intitle:"index of" "leads"' 
+    ]
+    
+    # Pick one from each and combine
+    chosen_niche = random.choice(niches)
+    chosen_footprint = random.choice(footprints)
+    
+    if location:
+        return f'"{chosen_niche}" "{location}" {chosen_footprint}'
+    return f'"{chosen_niche}" {chosen_footprint}'
+
 # Top Intelligence Bar
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("System Status", "HUNTING" if st.session_state.is_running else "STANDBY")
@@ -180,6 +202,10 @@ with tab_plan:
                      help="Number of cycles to run. Total leads = Limit × Cycles")
         else:
             st.session_state.batch_cycles = 1
+            
+        # Search Booster
+        st.checkbox("🚀 Search Booster (Query Multiplier)", value=False, key="search_booster",
+                    help="Automatically generates variations of your search query to find more leads.")
             
         st.info("Dual-Scan requires 2x API calls (Google + LinkedIn) per lead.")
         
@@ -302,17 +328,27 @@ if st.session_state.is_running:
         all_leads = []
         
         for cycle in range(batch_cycles):
+            current_query = st.session_state.target_query
+            
+            if st.session_state.get('search_booster', False):
+                # Try to extract location from the query if possible or use empty
+                location_match = re.search(r'in ([A-Za-z\s]+)$', current_query)
+                loc = location_match.group(1) if location_match else ""
+                clean_topic = current_query.replace(f"in {loc}", "").strip() if loc else current_query
+                current_query = generate_dynamic_queries(clean_topic, loc)
+                update_ui(f"🚀 Booster Engaged: {current_query}")
+
             if batch_cycles > 1:
                 update_ui(f"🔄 Starting Batch Cycle {cycle + 1}/{batch_cycles}")
             
             if mode == "Dual-Scan (Deep Hunt)":
-                leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=True))
+                leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=True))
             elif mode == "Google Maps (Local)":
-                leads = asyncio.run(hunter.run_mission(keyword=st.session_state.target_query, update_callback=update_ui, enrich_with_xray=False))
+                leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=False))
             else:
                 # LinkedIn X-Ray
                 leads = asyncio.run(hunter.run_linkedin_mission(
-                    keyword=st.session_state.target_query, 
+                    keyword=current_query, 
                     update_callback=update_ui,
                     signal_mode=st.session_state.get('signal_mode', False)
                 ))

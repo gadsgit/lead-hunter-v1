@@ -9,3 +9,4 @@ google-generativeai
 python-dotenv
 psutil
 pandas
+fake-useragent
