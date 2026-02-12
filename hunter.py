@@ -1088,12 +1088,22 @@ class LeadHunter:
                 if "Captcha" in page_title or "Before you continue" in page_title:
                     blocker_status = "🔴 CAPTCHA Block"
                 elif not profiles:
-                    # --- BROAD SEARCH FALLBACK ---
-                    if update_callback: update_callback("⚠️ No specific results. Trying Broader Search...")
-                    broad_dork = f'site:linkedin.com/in/ "{target_keyword}"'
+                    # --- ATTEMPT 2: BROAD SEARCH FALLBACK ---
+                    if update_callback: update_callback("⚠️ No specific results. Trying Broad LinkedIn Hunt...")
+                    broad_dork = f'site:linkedin.com/in/ {target_keyword}'
                     profiles = await self.scrape_linkedin_profiles(page, broad_dork, is_dork=True)
+                    
                     if not profiles:
-                        blocker_status = "🟡 No Results Found"
+                        # --- ATTEMPT 3: NATURAL LANGUAGE FALLBACK ---
+                        if update_callback: update_callback("🧬 Aggressive Mode: Trying Natural Language Search...")
+                        # Search without site: filter, just look for linkedin profiles naturally
+                        nat_query = f'"{target_keyword}" linkedin profiles'
+                        profiles = await self.scrape_linkedin_profiles(page, nat_query, is_dork=False)
+                        
+                        if not profiles:
+                            blocker_status = "🟡 No Results Found"
+                        else:
+                            blocker_status = "🟢 OK (Natural Hunt)"
                     else:
                         blocker_status = "🟢 OK (Broad Hunt)"
                 else:
