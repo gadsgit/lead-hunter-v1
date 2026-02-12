@@ -109,7 +109,7 @@ class GSheetsHandler:
                 "Web Status", "Web Opp", 
                 "Web Speed", "Speed Opp", 
                 "X-Ray Match", "X-Ray Opp",
-                "Icebreaker"
+                "Icebreaker", "Source"
             ]
             
             current_vals = self.sheet.get_all_values()
@@ -121,7 +121,7 @@ class GSheetsHandler:
             current_row1 = [v.strip() for v in current_vals[0]]
             
             # Check if any expected header is missing
-            if len(current_row1) < len(expected_headers) or "GMB Status" not in current_row1:
+            if len(current_row1) < len(expected_headers) or "Source" not in current_row1:
                 print("Headers outdated. Updating header row...")
                 # We replace the entire first row to ensure alignment with save_lead()
                 self.sheet.update('A1', [expected_headers])
@@ -187,7 +187,8 @@ class GSheetsHandler:
                     data.get('speed_opp', 'N/A'),
                     data.get('xray_status', 'N/A'),
                     data.get('xray_opp', 'N/A'),
-                    data.get('icebreaker', 'N/A')
+                    data.get('icebreaker', 'N/A'),
+                    data.get('source', source.capitalize())
                 ]
                 # Targeting the main sheet (usually Sheet1)
                 self.safe_append(self.sheet, row)
@@ -203,7 +204,8 @@ class GSheetsHandler:
                     data.get('summary', 'N/A'),
                     data.get('decision', 'N/A'),
                     data.get('signal', 'N/A'),
-                    data.get('icebreaker', 'N/A')
+                    data.get('icebreaker', 'N/A'),
+                    data.get('source', "LinkedIn " + ("Post" if "Post" in source.capitalize() else "Profile"))
                 ]
                 self.safe_append(sheet, row)
                 print(f"✅ LinkedIn Lead saved: {data.get('name')}")

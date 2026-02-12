@@ -254,6 +254,7 @@ with tab_exec:
                     "signal": st.column_config.TextColumn("Signal", width="small"),
                     "icebreaker": st.column_config.TextColumn("Icebreaker", width="large"),
                     "content_preview": st.column_config.TextColumn("Preview", width="medium"),
+                    "source": st.column_config.TextColumn("Lead Source", width="small"),
                 }
             )
             

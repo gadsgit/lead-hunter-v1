@@ -332,6 +332,58 @@ class LeadHunter:
             load_time = time.time() - start_time if load_time == 0 else load_time
             return "", [], {}, "N/A", "Unknown", load_time
 
+    async def recover_website(self, page, company_name):
+        """Searches Google for the company's official website if Maps entry is empty."""
+        try:
+            print(f"  🔍 Recovery Sweep: Searching for {company_name} website...")
+            search_query = f'"{company_name}" official website'
+            await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}")
+            await self.sleep_random(3, 5)
+            
+            # Look for non-social, non-directory links
+            links = await page.query_selector_all('a')
+            for link in links:
+                href = await link.get_attribute('href')
+                if not href: continue
+                # Basic cleaning
+                if "/url?q=" in href:
+                    match = re.search(r'url\?q=([^&]*)', href)
+                    if match: href = match.group(1)
+                
+                clean_url = href.split('&')[0].split('?')[0].lower()
+                
+                # Exclude social and directories
+                excl = ["facebook.com", "instagram.com", "linkedin.com", "yelp.com", "yellowpages.com", "mapquest.com", "google.com", "twitter.com"]
+                if clean_url.startswith("http") and not any(x in clean_url for x in excl):
+                    print(f"  ✨ Recovered Website: {clean_url}")
+                    return clean_url
+        except Exception as e:
+            print(f"  ⚠️ Recovery failed: {e}")
+        return "N/A"
+
+    async def recover_social(self, page, company_name, platform="linkedin"):
+        """Searches Google for the company's social profile."""
+        try:
+            print(f"  🔍 Social Hunting: Searching for {company_name} {platform}...")
+            search_query = f'"{company_name}" {platform}'
+            await page.goto(f"https://www.google.com/search?q={search_query.replace(' ', '+')}")
+            await self.sleep_random(2, 4)
+            
+            links = await page.query_selector_all('a')
+            for link in links:
+                href = await link.get_attribute('href')
+                if href and f"{platform}.com" in href.lower():
+                    # Clean Google redirect
+                    if "/url?q=" in href:
+                        match = re.search(r'url\?q=([^&]*)', href)
+                        if match: href = match.group(1)
+                    clean_url = href.split('&')[0].split('?')[0]
+                    print(f"  ✨ Recovered {platform.capitalize()}: {clean_url}")
+                    return clean_url
+        except:
+            pass
+        return "N/A"
+
     async def search_linkedin(self, page, company_name):
         print(f"Searching LinkedIn for: {company_name}")
         search_query = f"{company_name} LinkedIn company"
@@ -843,12 +895,26 @@ class LeadHunter:
                     
                     try:
                         company = basic_info.copy()
+                        
+                        # --- WEBSITE RECOVERY SWEEP ---
+                        if company.get("website") == "N/A":
+                            company["website"] = await self.recover_website(page, company["name"])
+                        
                         # Scrape with strict timeout
                         website_content, emails, socials, phone, tech_stack, load_time = await self.scrape_website(page, company["website"])
                         
+                        # --- SOCIAL RECOVERY SWEEP ---
+                        if socials.get("linkedin") == "N/A":
+                            socials["linkedin"] = await self.recover_social(page, company["name"], "linkedin")
+                        if socials.get("instagram") == "N/A":
+                            socials["instagram"] = await self.recover_social(page, company["name"], "instagram")
+                        if socials.get("facebook") == "N/A":
+                            socials["facebook"] = await self.recover_social(page, company["name"], "facebook")
+
                         company["email"] = ", ".join(emails) if emails else "N/A"
                         company["phone"] = phone
                         company["tech_stack"] = tech_stack
+                        company["source"] = "Google Maps"
                         company.update(socials)
 
                         # ENHANCED SIGNAL & OPPORTUNITY LOGIC
@@ -884,7 +950,10 @@ class LeadHunter:
                             company["web_opp"] = "N/A"
 
                         # 4. WEB SPEED & OPP
-                        if load_time > 5:
+                        if company.get("website", "N/A") == "N/A":
+                            company["speed_status"] = "N/A (No Site)"
+                            company["speed_opp"] = "N/A"
+                        elif load_time > 5:
                             company["speed_status"] = f"🐢 Slow ({load_time:.1f}s)"
                             company["speed_opp"] = "Pitch: Website Optimization / Speed."
                         else:
@@ -1019,7 +1088,14 @@ class LeadHunter:
                 if "Captcha" in page_title or "Before you continue" in page_title:
                     blocker_status = "🔴 CAPTCHA Block"
                 elif not profiles:
-                    blocker_status = "🟡 No Results Found"
+                    # --- BROAD SEARCH FALLBACK ---
+                    if update_callback: update_callback("⚠️ No specific results. Trying Broader Search...")
+                    broad_dork = f'site:linkedin.com/in/ "{target_keyword}"'
+                    profiles = await self.scrape_linkedin_profiles(page, broad_dork, is_dork=True)
+                    if not profiles:
+                        blocker_status = "🟡 No Results Found"
+                    else:
+                        blocker_status = "🟢 OK (Broad Hunt)"
                 else:
                     blocker_status = "🟢 OK"
             
@@ -1038,7 +1114,7 @@ class LeadHunter:
                 
                 lead = {
                     "name": profile["name"],
-                    "source": "LinkedIn Signal" if signal_mode else "LinkedIn X-Ray",
+                    "source": "LinkedIn Post" if signal_mode else "LinkedIn Profile",
                     "url": profile["url"],
                     "score": score,
                     "decision": decision,
@@ -1180,7 +1256,8 @@ class LeadHunter:
                     "url": profile["url"],
                     "score": score,
                     "decision": decision,
-                    "summary": summary
+                    "summary": summary,
+                    "source": "LinkedIn " + ("Post" if "Post" in source.capitalize() else "Profile") if "linkedin" in source.lower() else source.capitalize()
                 }
                 
                 # Save using the smart router
