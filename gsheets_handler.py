@@ -91,7 +91,17 @@ class GSheetsHandler:
             
             # Initialize headers if sheet is empty
             if not self.sheet.get_all_values():
-                headers = ["Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", "Instagram", "Facebook", "Score", "Decision", "Summary"]
+                headers = [
+                    "Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", 
+                    "Instagram", "Facebook", "Tech Stack",
+                    "Score", "Decision", "Summary", 
+                    "GMB Status", "GMB Opp", 
+                    "Ad Activity", "Ad Opp", 
+                    "Web Status", "Web Opp", 
+                    "Web Speed", "Speed Opp", 
+                    "X-Ray Match", "X-Ray Opp",
+                    "Icebreaker"
+                ]
                 self.sheet.append_row(headers)
             
             return True
@@ -144,15 +154,21 @@ class GSheetsHandler:
                     data.get('linkedin', 'N/A'),
                     data.get('instagram', 'N/A'),
                     data.get('facebook', 'N/A'),
+                    data.get('tech_stack', 'N/A'),
                     data.get('score', 0),
                     data.get('decision', 'N/A'),
                     data.get('summary', 'N/A'),
-                    data.get('founder_match', 'N/A'),
-                    data.get('tech_stack', 'N/A'),
-                    data.get('source', 'N/A'),
                     data.get('gmb_status', 'N/A'),
+                    data.get('gmb_opp', 'N/A'),
+                    data.get('ad_status', 'N/A'),
+                    data.get('ad_opp', 'N/A'),
                     data.get('web_status', 'N/A'),
-                    data.get('pitch', 'N/A')
+                    data.get('web_opp', 'N/A'),
+                    data.get('speed_status', 'N/A'),
+                    data.get('speed_opp', 'N/A'),
+                    data.get('xray_status', 'N/A'),
+                    data.get('xray_opp', 'N/A'),
+                    data.get('icebreaker', 'N/A')
                 ]
                 # Targeting the main sheet (usually Sheet1)
                 self.safe_append(self.sheet, row)
@@ -166,7 +182,9 @@ class GSheetsHandler:
                     data.get('url', 'N/A'),
                     data.get('score', 0),
                     data.get('summary', 'N/A'),
-                    data.get('decision', 'N/A')
+                    data.get('decision', 'N/A'),
+                    data.get('signal', 'N/A'),
+                    data.get('icebreaker', 'N/A')
                 ]
                 self.safe_append(sheet, row)
                 print(f"✅ LinkedIn Lead saved: {data.get('name')}")
@@ -197,7 +215,7 @@ class GSheetsHandler:
             return self.spreadsheet.worksheet("LinkedIn Leads")
         except gspread.exceptions.WorksheetNotFound:
             # Create sheet if missing
-            headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision"]
+            headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker"]
             new_sheet = self.spreadsheet.add_worksheet(title="LinkedIn Leads", rows="1000", cols="20")
             new_sheet.append_row(headers)
             return new_sheet

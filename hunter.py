@@ -259,17 +259,20 @@ class LeadHunter:
 
     async def scrape_website(self, page, url):
         if not url or url == "N/A":
-            return "", [], {}, "N/A", "Unknown"
+            return "", [], {}, "N/A", "Unknown", 0
 
         print(f"Scraping website: {url}")
+        start_time = time.time()
         content = ""
         emails = []
         socials = {}
         phone = "N/A"
         tech_stack = "Unknown"
+        load_time = 0
 
         try:
             await page.goto(url, wait_until="networkidle", timeout=30000)
+            load_time = time.time() - start_time
             await self.sleep_random(2, 4)
             
             # Extract HTML for Tech Stack and Emails
@@ -323,10 +326,11 @@ class LeadHunter:
                 except Exception as ex:
                     print(f"  -> Contact jump info: {ex}")
             
-            return content[:5000], emails, socials, phone, tech_stack # First 5000 chars for LLM
+            return content[:5000], emails, socials, phone, tech_stack, load_time # First 5000 chars for LLM
         except Exception as e:
             print(f"Error scraping {url}: {e}")
-            return "", [], {}, "N/A", "Unknown"
+            load_time = time.time() - start_time if load_time == 0 else load_time
+            return "", [], {}, "N/A", "Unknown", load_time
 
     async def search_linkedin(self, page, company_name):
         print(f"Searching LinkedIn for: {company_name}")
@@ -445,8 +449,18 @@ class LeadHunter:
 
     def generate_dork(self, keyword):
         """Constructs surgical Google X-Ray dorks for LinkedIn to ensure high quality leads."""
-        # Focus on profiles (/in/) to find decision makers
-        base_dork = f'site:linkedin.com/in/ "{keyword}"'
+        keyword_clean = keyword.replace('"', '')
+        
+        # If user provided a specific dork, use it with minimal additions
+        if "site:" in keyword.lower():
+            return keyword
+            
+        # If it's a niche search, add decision maker terms
+        if len(keyword_clean.split()) > 2:
+            # Broader dork for niches
+            base_dork = f'site:linkedin.com/in/ "{keyword_clean}" ("CEO" OR "Founder" OR "Owner" OR "Co-Founder")'
+        else:
+            base_dork = f'site:linkedin.com/in/ "{keyword}"'
         
         # Exclude common noise to save RAM and focus on real people
         final_dork = f"{base_dork} -intitle:jobs -inurl:jobs -inurl:posts"
@@ -686,20 +700,27 @@ class LeadHunter:
         
         return results, blocker_status
 
-    async def score_linkedin_ai(self, profile_name, snippet_text):
+    async def score_linkedin_ai(self, profile_name, snippet_text, signal_type="👤 Profile"):
         if not self.model:
-            return "Pending", "Pending", "Pending", "Pending AI Review"
+            return "Pending", "Pending", "LinkedIn", "Pending AI Review", "N/A"
 
         prompt = f"""
         Analyze this LinkedIn profile snippet for '{profile_name}'.
+        Signal Category: {signal_type}
         Snippet: {snippet_text}
         
         Goal: Score (0-100) based on relevance to a 'High Ticket B2B' target.
+        Also, write a highly personalized 'Automated AI Icebreaker' (1 sentence max).
+        - If recent post signal: "I saw your recent post about [Topic]; I loved your point about [Detail]."
+        - If hiring signal: "I saw you're looking for help with [Role]; I'd love to help automate your lead gen."
+        - Be professional, surgical, and short.
+        
         Return exactly in this JSON format:
         {{
             "score": <integer>,
             "decision": "<Qualified/Neutral/Not Qualified>",
-            "summary": "<1-sentence summary of their role>"
+            "summary": "<1-sentence summary of their role>",
+            "icebreaker": "<the icebreaker text>"
         }}
         """
         try:
@@ -708,29 +729,43 @@ class LeadHunter:
             start = clean_text.find('{')
             end = clean_text.rfind('}') + 1
             data = json.loads(clean_text[start:end])
-            return data.get("score", 50), data.get("decision", "Neutral"), "LinkedIn", data.get("summary", "Analyzed Profile")
+            return (
+                data.get("score", 50), 
+                data.get("decision", "Neutral"), 
+                "LinkedIn", 
+                data.get("summary", "Analyzed Profile"),
+                data.get("icebreaker", "I saw your profile on LinkedIn and was impressed by your work.")
+            )
         except:
-            return 50, "Neutral", "LinkedIn", "AI Score Failed"
+            return 50, "Neutral", "LinkedIn", "AI Score Failed", "I saw your profile on LinkedIn."
 
     def detect_buying_signal(self, snippet_text):
         """
         Detects buying signals from Google snippet text.
-        Returns: (signal_type, preview_text)
+        Returns: (signal_type, icebreaker_placeholder)
         """
-        hiring_keywords = ["hiring", "looking for freelancer", "looking for a freelancer", "need a", "recruiting", "looking to hire"]
+        hiring_keywords = ["hiring", "looking for freelancer", "looking for a freelancer", "need a", "recruiting", "looking to hire", "looking for help"]
         frustration_keywords = ["frustrated with", "issues with", "problem with", "struggling with", "having trouble", "doesn't work"]
         advice_keywords = ["recommend a", "recommend an", "looking for agency", "looking for a", "need help with", "suggestions for", "anyone know"]
         
         snippet_lower = snippet_text.lower()
         
-        if any(kw in snippet_lower for kw in hiring_keywords):
-            return "📢 Hiring", snippet_text[:100]
-        elif any(kw in snippet_lower for kw in frustration_keywords):
-            return "🛠️ Frustration", snippet_text[:100]
-        elif any(kw in snippet_lower for kw in advice_keywords):
-            return "💡 Advice", snippet_text[:100]
+        # Premium/Open Profile detection
+        is_open = "premium" in snippet_lower or "open profile" in snippet_lower
         
-        return "👤 Profile", snippet_text[:100]
+        if any(kw in snippet_lower for kw in hiring_keywords):
+            signal = "📢 Hiring"
+        elif any(kw in snippet_lower for kw in frustration_keywords):
+            signal = "🛠️ Frustration"
+        elif any(kw in snippet_lower for kw in advice_keywords):
+            signal = "💡 Advice"
+        else:
+            signal = "👤 Profile"
+
+        if is_open:
+            signal = f"🔓 {signal}"
+            
+        return signal, "Analyzing via AI..."
 
     async def run_mission(self, keyword=None, update_callback=None, progress_callback=None, enrich_with_xray=False):
         target_keyword = keyword if keyword else self.keyword
@@ -781,51 +816,65 @@ class LeadHunter:
                     try:
                         company = basic_info.copy()
                         # Scrape with strict timeout
-                        website_content, emails, socials, phone, tech_stack = await self.scrape_website(page, company["website"])
+                        website_content, emails, socials, phone, tech_stack, load_time = await self.scrape_website(page, company["website"])
                         
                         company["email"] = ", ".join(emails) if emails else "N/A"
                         company["phone"] = phone
                         company["tech_stack"] = tech_stack
                         company.update(socials)
 
-                        # OPPORTUNITY & BADGE DETECTION (3 Separate Columns)
+                        # ENHANCED SIGNAL & OPPORTUNITY LOGIC
                         
-                        # Column 1: GMB STATUS
+                        # 1. GMB STATUS & OPP
                         if company.get("is_unclaimed", False):
                             company["gmb_status"] = "🚩 Unclaimed"
+                            company["gmb_opp"] = "Pitch: Claim and Optimize GMB Profile."
                         elif company.get("reviews", 0) < 10:
-                            company["gmb_status"] = "⚠️ Low Revs"
+                            company["gmb_status"] = f"⚠️ Low Reviews ({company.get('reviews')})"
+                            company["gmb_opp"] = "Pitch: Automated Review Management."
                         else:
                             company["gmb_status"] = "✅ Healthy"
+                            company["gmb_opp"] = "N/A"
 
-                        # Column 2: WEB/TECH STATUS
+                        # 2. AD ACTIVITY & OPP
+                        if "Meta Pixel" not in tech_stack:
+                            company["ad_status"] = "📉 Not running Meta Ads"
+                            company["ad_opp"] = "Pitch: Lead Generation Automation."
+                        else:
+                            company["ad_status"] = "🚀 Active"
+                            company["ad_opp"] = "N/A"
+                            
+                        # 3. WEB STATUS & OPP
                         if company.get("website", "N/A") == "N/A":
                             company["web_status"] = "🚫 No Site"
-                        elif "Unknown" in tech_stack:
-                            company["web_status"] = "🕸️ Basic"
-                        elif "Meta Pixel" not in tech_stack:
-                            company["web_status"] = "📉 No Pixel"
+                            company["web_opp"] = "Pitch: High-Converting Landing Page Build."
+                        elif "WordPress" in tech_stack or "Basic" in tech_stack:
+                            company["web_status"] = "🕸️ Old WP / Basic"
+                            company["web_opp"] = "Pitch: Performance Marketing / CRO."
                         else:
                             company["web_status"] = "💎 Modern"
+                            company["web_opp"] = "N/A"
+
+                        # 4. WEB SPEED & OPP
+                        if load_time > 5:
+                            company["speed_status"] = f"🐢 Slow ({load_time:.1f}s)"
+                            company["speed_opp"] = "Pitch: Website Optimization / Speed."
+                        else:
+                            company["speed_status"] = f"⚡ Fast ({load_time:.1f}s)"
+                            company["speed_opp"] = "N/A"
                             
-                        # Column 3: PITCH/INTENT
-                        pitch_reasons = []
-                        
-                        if company.get("is_unclaimed", False):
-                            pitch_reasons.append("Claim GMB")
-                        if company.get("reviews", 0) < 10:
-                            pitch_reasons.append("Review Mgmt")
-                        if company.get("website", "N/A") == "N/A":
-                            pitch_reasons.append("New Website")
-                        elif "Meta Pixel" not in tech_stack:
-                            pitch_reasons.append("Pixel/CRO")
-                        if company.get("is_closed", False):
-                            pitch_reasons.append("SEO Fix")
+                        # 5. X-RAY MATCH & OPP
+                        company["xray_status"] = "❓ Not Found"
+                        company["xray_opp"] = "Pitch: Direct Outreach / LinkedIn DM."
+
+                        # QUERY-BASED OVERRIDES (High-Intent)
                         if "emergency" in target_keyword.lower():
-                            pitch_reasons.append("🚨 PPC Ads")
-                        
-                        company["pitch"] = ", ".join(list(set(pitch_reasons))) if pitch_reasons else "Lead Gen"
-                        
+                            company["ad_opp"] = "Pitch: PPC / Google Ads (Urgent need)."
+                        if "new" in target_keyword.lower():
+                            company["gmb_opp"] = "Pitch: Launch Marketing / Google Business Setup."
+                        if "open now" in target_keyword.lower():
+                            company["ad_opp"] = "Pitch: Real-Time Lead Engagement / Call-Only Campaigns."
+
                         # Track source
                         company["source"] = "Google Maps"
                         
@@ -847,6 +896,7 @@ class LeadHunter:
                                 founder = xray_results[0] # Take top result
                                 founder_info = f"{founder['name']} ({founder['url']})"
                                 company['founder_match'] = founder_info
+                                company['xray_status'] = "👤 Found Founder"
                                 if update_callback: update_callback(f"   👤 Found: {founder['name']}")
                             else:
                                 company['founder_match'] = "Not Found"
@@ -899,8 +949,9 @@ class LeadHunter:
                         "founder": company_data.get("founder_match", "N/A"),
                         "tech": company_data.get("tech_stack", "Unknown"),
                         "gmb": company_data.get("gmb_status", "N/A"),
+                        "ad": company_data.get("ad_status", "N/A"),
                         "web": company_data.get("web_status", "N/A"),
-                        "pitch": company_data.get("pitch", "N/A"),
+                        "speed": company_data.get("speed_status", "N/A"),
                         "score": company_data["score"],
                         "decision": company_data.get("decision", "N/A"),
                         "summary": company_data["summary"][:100] + "..." 
@@ -948,7 +999,7 @@ class LeadHunter:
                 if update_callback: update_callback(f"AI Analyzing Profile Snippet: {profile['name']}...")
                 
                 # Analyze using the SNIPPET to stay logged out / safe
-                score, decision, _, summary = await self.score_linkedin_ai(profile["name"], profile["snippet"])
+                score, decision, _, summary, icebreaker = await self.score_linkedin_ai(profile["name"], profile["snippet"], profile.get("signal", "Profile"))
                 
                 lead = {
                     "name": profile["name"],
@@ -958,6 +1009,7 @@ class LeadHunter:
                     "decision": decision,
                     "summary": summary,
                     "signal": profile.get("signal", "👤 Profile"),
+                    "icebreaker": icebreaker,
                     "content_preview": profile.get("content_preview", profile["snippet"][:100])
                 }
 

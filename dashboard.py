@@ -112,19 +112,19 @@ with tab_plan:
         st.caption("Target high-intent LinkedIn posts with buying signals")
         c_s1, c_s2, c_s3 = st.columns(3)
         if c_s1.button("📢 Hiring Signal"):
-            st.session_state.target_query = 'site:linkedin.com/posts "hiring" "freelancer" "marketing"'
+            st.session_state.target_query = 'site:linkedin.com/posts "hiring" AND "freelancer" AND "marketing" "USA"'
             st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
             st.session_state.signal_mode = True
             st.rerun()
-        if c_s2.button("🛠️ Frustration Signal"):
-            st.session_state.target_query = 'site:linkedin.com/posts "frustrated with" "google ads"'
+        if c_s2.button("🛠️ Projects Signal"):
+            st.session_state.target_query = 'site:linkedin.com/posts "looking for a developer" OR "recommend an agency" "USA"'
             st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
             st.session_state.signal_mode = True
             st.rerun()
-        if c_s3.button("💡 Advice Signal"):
-            st.session_state.target_query = 'site:linkedin.com/posts "recommend a" "shopify agency"'
+        if c_s3.button("💎 Decision Makers"):
+            st.session_state.target_query = 'site:linkedin.com/in "Founder" AND "Shopify" AND "United States"'
             st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-            st.session_state.signal_mode = True
+            st.session_state.signal_mode = False
             st.rerun()
                 
         # Signal Mode Toggle
@@ -222,7 +222,12 @@ with tab_exec:
             df = pd.DataFrame(st.session_state.results)
             
             # Reorder columns for "Hard Signals" visibility
-            desired_order = ["name", "source", "signal", "content_preview", "gmb", "web", "pitch", "founder", "tech", "website", "phone", "email", "score", "summary"]
+            desired_order = [
+                "name", "source", "signal", "icebreaker", "content_preview", 
+                "gmb", "ad", "web", "speed", 
+                "gmb_opp", "ad_opp", "web_opp", "speed_opp", "xray_opp",
+                "founder", "tech", "website", "instagram", "facebook", "phone", "email", "score", "summary"
+            ]
             # Filter to existing columns
             cols = [c for c in desired_order if c in df.columns]
             # Add any remaining
@@ -233,12 +238,21 @@ with tab_exec:
                 hide_index=True,
                 column_config={
                     "website": st.column_config.LinkColumn("Website"),
+                    "instagram": st.column_config.LinkColumn("Instagram"),
+                    "facebook": st.column_config.LinkColumn("Facebook"),
                     "founder": st.column_config.TextColumn("Founder Match"),
                     "tech": st.column_config.TextColumn("Tech Stack"),
                     "gmb": st.column_config.TextColumn("GMB Status", width="small"),
+                    "ad": st.column_config.TextColumn("Ads", width="small"),
                     "web": st.column_config.TextColumn("Web Status", width="small"),
-                    "pitch": st.column_config.TextColumn("Pitch", width="medium"),
+                    "speed": st.column_config.TextColumn("Speed", width="small"),
+                    "gmb_opp": st.column_config.TextColumn("GMB Opp", width="medium"),
+                    "ad_opp": st.column_config.TextColumn("Ad Opp", width="medium"),
+                    "web_opp": st.column_config.TextColumn("Web Opp", width="medium"),
+                    "speed_opp": st.column_config.TextColumn("Speed Opp", width="medium"),
+                    "xray_opp": st.column_config.TextColumn("X-Ray Opp", width="medium"),
                     "signal": st.column_config.TextColumn("Signal", width="small"),
+                    "icebreaker": st.column_config.TextColumn("Icebreaker", width="large"),
                     "content_preview": st.column_config.TextColumn("Preview", width="medium"),
                 }
             )
