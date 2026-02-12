@@ -457,11 +457,9 @@ class LeadHunter:
             
         # If it's a niche search, add decision maker terms
         if len(keyword_clean.split()) > 2:
-            # Flexible dork: try the phrase in quotes first, but also without to catch variations
-            # We use the niche + titles
-            base_dork = f'site:linkedin.com/in/ "{keyword_clean}"'
-            # OR broader:
-            # site:linkedin.com/in/ "Cushions" "manufacturer" "New Jersey"
+            # Extremely flexible dork: find the keywords anywhere, but prioritize profiles
+            # site:linkedin.com/in/ auto repair shop nj ("CEO" OR "Owner")
+            base_dork = f'site:linkedin.com/in/ {keyword_clean}'
         else:
             base_dork = f'site:linkedin.com/in/ "{keyword}"'
         
@@ -514,18 +512,28 @@ class LeadHunter:
         # Jitter: Random sleep between searching and processing
         await self.sleep_random(5, 8) 
 
+        # DIAL HOME: Check for CAPTCHA
+        page_title = await page.title()
+        if "Before you continue" in page_title or "Captcha" in page_title:
+             print(f"🔴 CAPTCHA DETECTED on Profile Search: {page_title}")
+             # We can't really bypass it here without manual intervention/proxies, but we can log it.
+             # This helps the user know WHY it's empty.
+             return []
+
         results = []
         links = await page.query_selector_all('a')
         
-        print(f"Found {len(links)} total links on Google results page")
+        print(f"DEBUG: Found {len(links)} total links on Google results page for dork: {dork}")
         
         processed_urls = set()
+        li_links = 0
         for link in links:
             if len(results) >= self.limit:
                 break
             
             href = await link.get_attribute('href')
             if href and "linkedin.com/in/" in href:
+                li_links += 1
                 # Clean Google redirect
                 if "/url?q=" in href:
                     match = re.search(r'url\?q=([^&]*)', href)
@@ -1003,13 +1011,20 @@ class LeadHunter:
             if signal_mode:
                 # Use signal-based post scraping
                 profiles, blocker_status = await self.scrape_linkedin_posts(page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
-                
-                # Report blocker status
-                if update_callback: update_callback(f"Blocker Status: {blocker_status}")
             else:
                 # Use traditional profile scraping
                 profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=is_already_dork)
-                blocker_status = "🟢 OK"  # Legacy mode doesn't return blocker status
+                # Check for blocker status in profile mode too
+                page_title = await page.title()
+                if "Captcha" in page_title or "Before you continue" in page_title:
+                    blocker_status = "🔴 CAPTCHA Block"
+                elif not profiles:
+                    blocker_status = "🟡 No Results Found"
+                else:
+                    blocker_status = "🟢 OK"
+            
+            # Report blocker status
+            if update_callback: update_callback(f"Blocker Status: {blocker_status}")
             
             # CRITICAL: Close browser immediately after scraping profiles
             await browser.close()
