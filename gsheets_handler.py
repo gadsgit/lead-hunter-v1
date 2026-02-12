@@ -89,25 +89,44 @@ class GSheetsHandler:
                     print("TIP: Add GOOGLE_SHEET_ID to your Render Environment variables and share the sheet with the Service Account email.")
                     return False
             
-            # Initialize headers if sheet is empty
-            if not self.sheet.get_all_values():
-                headers = [
-                    "Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", 
-                    "Instagram", "Facebook", "Tech Stack",
-                    "Score", "Decision", "Summary", 
-                    "GMB Status", "GMB Opp", 
-                    "Ad Activity", "Ad Opp", 
-                    "Web Status", "Web Opp", 
-                    "Web Speed", "Speed Opp", 
-                    "X-Ray Match", "X-Ray Opp",
-                    "Icebreaker"
-                ]
-                self.sheet.append_row(headers)
+            # Ensure headers are up to date
+            self.sync_headers()
             
             return True
         except Exception as e:
             print(f"Error connecting to Google Sheets: {e}")
             return False
+
+    def sync_headers(self):
+        """Checks if headers match the expected layout and updates if necessary."""
+        try:
+            expected_headers = [
+                "Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", 
+                "Instagram", "Facebook", "Tech Stack",
+                "Score", "Decision", "Summary", 
+                "GMB Status", "GMB Opp", 
+                "Ad Activity", "Ad Opp", 
+                "Web Status", "Web Opp", 
+                "Web Speed", "Speed Opp", 
+                "X-Ray Match", "X-Ray Opp",
+                "Icebreaker"
+            ]
+            
+            current_vals = self.sheet.get_all_values()
+            if not current_vals:
+                print("Sheet empty. Initializing headers...")
+                self.sheet.append_row(expected_headers)
+                return
+
+            current_row1 = [v.strip() for v in current_vals[0]]
+            
+            # Check if any expected header is missing
+            if len(current_row1) < len(expected_headers) or "GMB Status" not in current_row1:
+                print("Headers outdated. Updating header row...")
+                # We replace the entire first row to ensure alignment with save_lead()
+                self.sheet.update('A1', [expected_headers])
+        except Exception as e:
+            print(f"Header Sync Error: {e}")
 
     import time
 
