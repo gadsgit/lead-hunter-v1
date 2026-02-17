@@ -11,6 +11,7 @@ from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
 import google.generativeai as genai
 import gc
+import datetime
 
 # Try importing different stealth implementations to compatible with different versions
 stealth_async = None
@@ -54,11 +55,25 @@ class LeadHunter:
         self.gsheets = GSheetsHandler()
         self.leads = []
         self.api_key = os.getenv("GEMINI_API_KEY")
+        self.mission_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.archive_file = "intelligence_archive.txt"
+        
         if self.api_key:
             genai.configure(api_key=self.api_key)
             self.model = genai.GenerativeModel('gemini-1.5-flash')
         else:
             self.model = None
+
+    def archive_intelligence(self, category, content):
+        """Persistent logging of all AI prompts, responses, and mission logs."""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"\n[{timestamp}] [{self.mission_id}] [{category.upper()}]\n{content}\n"
+        log_entry += "-" * 50 + "\n"
+        try:
+            with open(self.archive_file, "a", encoding="utf-8") as f:
+                f.write(log_entry)
+        except Exception as e:
+            print(f"Error archiving intelligence: {e}")
 
     async def sleep_random(self, min_s=2, max_s=5):
         await asyncio.sleep(random.uniform(min_s, max_s))
@@ -158,9 +173,16 @@ class LeadHunter:
         # Ensure JSON response
         prompt += "\nReturn exactly in valid JSON format. If it's a list, return [{}]. If single object, return {}."
 
+        # ARCHIVE: Prompt
+        self.archive_intelligence(f"PROMPT_EXTRACT_{prompt_type}", prompt)
+
         try:
             response = self.model.generate_content(prompt)
             text = response.text.replace("```json", "").replace("```", "").strip()
+            
+            # ARCHIVE: Response
+            self.archive_intelligence(f"RESPONSE_EXTRACT_{prompt_type}", text)
+
             # Basic JSON extraction
             start = text.find('[') if '[' in text else text.find('{')
             end = (text.rfind(']') + 1) if ']' in text else (text.rfind('}') + 1)
@@ -168,6 +190,7 @@ class LeadHunter:
                 return json.loads(text[start:end])
             return None
         except Exception as e:
+            self.archive_intelligence(f"ERROR_EXTRACT_{prompt_type}", str(e))
             print(f"Universal AI Extract Error: {e}")
             return None
 
@@ -626,10 +649,18 @@ class LeadHunter:
             "reasoning": "<short summary for the summary column>"
         }}
         """
+    
+        # ARCHIVE: Prompt
+        self.archive_intelligence(f"PROMPT_SCORE_{lead_name}", prompt)
+
         try:
             response = self.model.generate_content(prompt)
             # Handle possible markdown wrapping from LLM
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            
+            # ARCHIVE: Response
+            self.archive_intelligence(f"RESPONSE_SCORE_{lead_name}", clean_text)
+
             # If there's still extra text around the JSON, try to find the first { and last }
             start = clean_text.find('{')
             end = clean_text.rfind('}') + 1
@@ -639,6 +670,7 @@ class LeadHunter:
             data = json.loads(clean_text)
             return data.get("score", 0), data.get("decision", "Neutral"), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI")
         except Exception as e:
+            self.archive_intelligence(f"ERROR_SCORE_{lead_name}", str(e))
             print(f"AI Scoring Error: {e}")
             return 50, "Neutral", "Unknown", "AI parsing failed, using default score"
 
@@ -941,9 +973,16 @@ class LeadHunter:
             "icebreaker": "<the icebreaker text>"
         }}
         """
+        # ARCHIVE: Prompt
+        self.archive_intelligence(f"PROMPT_LINKEDIN_{profile_name}", prompt)
+
         try:
             response = self.model.generate_content(prompt)
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
+            
+            # ARCHIVE: Response
+            self.archive_intelligence(f"RESPONSE_LINKEDIN_{profile_name}", clean_text)
+
             start = clean_text.find('{')
             end = clean_text.rfind('}') + 1
             data = json.loads(clean_text[start:end])
@@ -954,7 +993,8 @@ class LeadHunter:
                 data.get("summary", "Analyzed Profile"),
                 data.get("icebreaker", "I saw your profile on LinkedIn and was impressed by your work.")
             )
-        except:
+        except Exception as e:
+            self.archive_intelligence(f"ERROR_LINKEDIN_{profile_name}", str(e))
             return 50, "Neutral", "LinkedIn", "AI Score Failed", "I saw your profile on LinkedIn."
 
     def detect_buying_signal(self, snippet_text):

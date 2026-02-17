@@ -10,3 +10,10 @@ python-dotenv
 psutil
 pandas
 fake-useragent
+openpyxl
+xlsxwriter
+requests
+urllib3
+lxml
+joblib
+pyppeteer-stealth

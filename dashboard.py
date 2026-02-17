@@ -24,7 +24,48 @@ load_dotenv()
 if os.path.exists(".env.local"):
     load_dotenv(".env.local", override=True)
 
+# --- SMART PITCH GENERATOR ---
+def generate_smart_pitch(row):
+    """Dynamically creates a pitch based on lead's detected 'Opportunities'."""
+    name = row.get("Name") or row.get("Company") or "there"
+    
+    # Priority 1: GMB Issues
+    gmb_opp = str(row.get("GMB Status") or row.get("gmb") or "")
+    if "Not Found" in gmb_opp or "Unclaimed" in gmb_opp:
+        return f"Hi {name}, I noticed your business isn't optimized on Google Maps. You're losing local customers to competitors who are ranked higher. I can fix your GMB visibility in 7 days."
+    
+    # Priority 2: Web Speed
+    speed = str(row.get("Web Speed") or row.get("speed") or "")
+    if "Slow" in speed or (re.search(r'(\d+)', speed) and int(re.search(r'(\d+)', speed).group(1)) > 5):
+        return f"Hi {name}, I noticed your website takes over {speed} to load. Google penalizes slow sites and 53% of users leave if it takes >3s. Let me optimize your speed for better conversions."
+    
+    # Priority 3: Ads/Visibility
+    ad_opp = str(row.get("Ad Opp") or row.get("ad") or "")
+    if "Not running" in ad_opp:
+        return f"Hi {name}, I noticed you aren't running Meta Ads. Your competitors are likely stealing your leads while you sleep. I can set up an automated lead gen system for you."
+
+    return f"Hi {name}, I saw your profile and noticed some major growth opportunities for your business. I'd love to send you a quick 2-minute audit. Interested?"
+
 st.set_page_config(page_title="Hunter Intelligence Console", layout="wide", page_icon="🏹")
+
+# --- 0. INTELLIGENCE TRACKER (REDIRECTOR) ---
+# This catches leads clicking your tracking links and logs the 'Open'.
+if "tracking_id" in st.query_params:
+    tid = st.query_params["tracking_id"]
+    timestamp_open = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 1. Log the 'Open' to a persistent file (All sessions share this)
+    try:
+        with open("intelligence_opens.txt", "a", encoding="utf-8") as f:
+            f.write(f"{tid},{timestamp_open}\n")
+    except: pass
+    
+    # 2. Redirect to your Audit or Main Site
+    # Tip: In Render Env, set TARGET_AUDIT_URL to your desired destination.
+    target_dest = os.getenv("TARGET_AUDIT_URL", "https://iadsclick.com")
+    st.write(f"🔄 **Personalizing your audit for ID: {tid}...**")
+    st.markdown(f'<meta http-equiv="refresh" content="1;url={target_dest}">', unsafe_allow_html=True)
+    st.stop()
 
 # --- CUSTOM STYLING ---
 st.title("🏹 Lead Hunter - Unified Intelligence Console")
@@ -461,9 +502,20 @@ def send_whatsapp(phone, message):
 
         elif st.session_state.app_mode == "🤳 Manual Outreach":
             st.title("🤳 Manual Outreach (Lead CRM)")
-            st.info("Direct-access lead management. 100% ban-safe and highly flexible.")
+            st.info("Direct-access lead management. Includes intelligence-tracked links to reveal when leads open your audit.")
 
-            # 1. Flexible Ingestion
+            # 1. Tracker Initialization (Read existing opens from file)
+            opens_map = {}
+            if os.path.exists("intelligence_opens.txt"):
+                try:
+                    with open("intelligence_opens.txt", "r", encoding="utf-8") as f:
+                        for line in f:
+                            if "," in line:
+                                lid_o, ts_o = line.strip().split(",", 1)
+                                opens_map[lid_o] = ts_o
+                except: pass
+
+            # 2. Flexible Ingestion
             with st.expander("📬 Lead Ingestion Source", expanded=not st.session_state.get('manual_crm_data') is not None):
                 crm_source = st.radio("Choose lead origin", 
                                      ["🏹 Integrated Hub (Internal)", "📁 Excel/CSV Upload", "🌐 Public GSheet URL"],
@@ -497,22 +549,23 @@ def send_whatsapp(phone, message):
                     st.session_state.manual_crm_data = temp_df
                     st.success(f"Successfully loaded {len(temp_df)} leads!")
 
-            # 2. Display and Action UI
+            # 3. Display and Action UI
             if st.session_state.manual_crm_data is None or st.session_state.manual_crm_data.empty:
                 st.warning("No leads loaded in CRM. Use the expander above to start.")
+                st.info("💡 Note: If uploading Excel fails, ensure 'openpyxl' is installed on your server (check requirements.txt).")
             else:
                 df_crm = st.session_state.manual_crm_data
                 
                 # Persistent Filtering (Hide indices already in sent_indices)
                 active_df = df_crm[~df_crm.index.isin(st.session_state.manual_sent_indices)]
                 
-                c_f1, c_f2 = st.columns(2)
+                c_f1, c_f2, c_f3 = st.columns([2, 2, 1])
                 search_q = c_f1.text_input("Search Name/Company", "", key="crm_search_bar")
+                hide_no_phone = c_f3.toggle("📞 Only Phone-Ready", value=False, key="crm_hide_no_phone")
                 
                 # Flexible Industry Filtering
                 possible_ind_cols = ["Industry", "Industry/Keyword", "Keyword", "Source", "Category"]
                 ind_col = next((c for c in possible_ind_cols if c in active_df.columns), None)
-                
                 if ind_col:
                     ind_filter = c_f2.multiselect("Industry Filter", active_df[ind_col].unique(), key="crm_ind_filter_box")
                     if ind_filter: active_df = active_df[active_df[ind_col].isin(ind_filter)]
@@ -521,12 +574,23 @@ def send_whatsapp(phone, message):
                     name_col = next((c for c in ["Name", "Company", "Title", "Contact"] if c in active_df.columns), active_df.columns[0])
                     active_df = active_df[active_df[name_col].str.contains(search_q, case=False, na=False)]
 
+                # Apply Phone Filter
+                def has_valid_phone(val):
+                    v = str(val).lower().strip()
+                    return v not in ['nan', 'n/a', '', '0', 'none', 'none']
+                
+                if hide_no_phone:
+                    phone_col = next((c for c in ["Phone", "phone", "Number", "Mobile"] if c in active_df.columns), None)
+                    if phone_col:
+                        active_df = active_df[active_df[phone_col].apply(has_valid_phone)]
+
                 st.subheader(f"Active Queue ({len(active_df)})")
                 
                 if active_df.empty:
                     st.info("Queue clear! Reach out to more leads or reset progress Below.")
                     if st.button("Reset Entire CRM Progress", type="primary"):
                         st.session_state.manual_sent_indices = set()
+                        st.session_state.manual_sent_log = pd.DataFrame(columns=['Name', 'Phone', 'Industry', 'Timestamp'])
                         st.rerun()
                 else:
                     # Layout as compact Action Cards
@@ -534,52 +598,85 @@ def send_whatsapp(phone, message):
                         with st.container(border=True):
                             c_card_info, c_card_msg, c_card_act = st.columns([2, 3, 1])
                             
-                            # Standardize mapping for display from varying sheet formats
-                            le_name = row.get("Name") or row.get("Company") or row.get("name") or f"Lead ID:{idx}"
+                            le_name = str(row.get("Name") or row.get("Company") or row.get("name") or f"Lead ID:{idx}")
                             le_phone = str(row.get("Phone") or row.get("phone") or row.get("Number") or row.get("Phone No") or "N/A")
-                            le_ind = row.get("Industry") or row.get("Keyword") or row.get("Source") or "General"
-                            le_web = row.get("Website") or row.get("website") or row.get("URL") or "N/A"
+                            le_ind = str(row.get("Industry") or row.get("Keyword") or row.get("Source") or "General")
                             
                             c_card_info.markdown(f"**{le_name}**")
-                            c_card_info.caption(f"📌 {le_ind} | 📞 {le_phone}")
-                            if le_web != "N/A": 
-                                if str(le_web).startswith("http"): c_card_info.caption(f"🌎 [Visit Site]({le_web})")
-                                else: c_card_info.caption(f"🌎 {le_web}")
                             
-                            # Professional Message Template
-                            default_msg_body = f"Hi {le_name}, I saw your business under {le_ind}. I noticed some growth opportunities. Let's talk!"
-                            custom_note_final = c_card_msg.text_area("Live Customization", value=default_msg_body, height=90, key=f"crm_note_edit_{idx}")
+                            # --- TRACKING / READ RECEIPT UI ---
+                            track_id = re.sub(r'[^a-zA-Z0-9]', '', le_name.split()[0].lower()) + str(idx)
+                            if track_id in opens_map:
+                                c_card_info.success(f"🔥 **READ: {opens_map[track_id]}**")
+                            else:
+                                c_card_info.caption("🕒 Not opened yet")
+
+                            # Opportunity Badges
+                            gmb_o = str(row.get("GMB Status") or row.get("gmb") or "")
+                            if "Not Found" in gmb_o: c_card_info.error("📍 GMB Missing")
+                            elif "Unclaimed" in gmb_o: c_card_info.warning("📍 GMB Unclaimed")
+                            
+                            sp_o = str(row.get("Web Speed") or row.get("speed") or "")
+                            if "Slow" in sp_o: c_card_info.error(f"🐢 Slow Speed: {sp_o}")
+
+                            if not has_valid_phone(le_phone):
+                                c_card_info.error("📵 Phone Missing")
+                                search_q_li = f"{le_name} founder linkedin"
+                                li_url = f"https://www.google.com/search?q={urllib.parse.quote(search_q_li)}"
+                                c_card_info.markdown(f"[:blue[🔍 Find on LinkedIn]]({li_url})")
+                            else:
+                                c_card_info.caption(f"📞 {le_phone}")
+                            
+                            c_card_info.caption(f"📌 {le_ind}")
+
+                            # --- SMART PITCH with TRACKING ---
+                            smart_pitch = generate_smart_pitch(row)
+                            # Add tracking link snippet
+                            app_url = os.getenv("RENDER_EXTERNAL_URL", "https://lead-hunter.onrender.com")
+                            tracking_url = f"{app_url}/?tracking_id={track_id}"
+                            smart_pitch += f"\n\nView your audit here: {tracking_url}"
+                            
+                            custom_note_final = c_card_msg.text_area("Live Customization", value=smart_pitch, height=130, key=f"crm_note_edit_{idx}")
                             
                             # WhatsApp API Generation
-                            import urllib.parse
                             le_clean_p = re.sub(r'[^0-9]', '', le_phone)
-                            # Handle common lack of country code for Indian targets
                             if len(le_clean_p) == 10: le_clean_p = "91" + le_clean_p
                             wa_url_final = f"https://wa.me/{le_clean_p}?text={urllib.parse.quote(custom_note_final)}"
                             
-                            c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">Open WA</button></a>', unsafe_allow_html=True)
+                            if has_valid_phone(le_phone):
+                                c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">Open WA</button></a>', unsafe_allow_html=True)
+                            else:
+                                c_card_act.markdown(f'<br><button style="background-color: #555; color: white; border: none; padding: 14px; border-radius: 8px; cursor: not-allowed; width: 100%; font-weight: bold;" disabled>No Phone</button>', unsafe_allow_html=True)
                             
                             if c_card_act.button("✅ Done", key=f"crm_mark_done_{idx}", use_container_width=True):
-                                # 1. Update status tracking sets
                                 st.session_state.manual_sent_indices.add(idx)
-                                
-                                # 2. Append to persistent log for reporting
                                 new_entry = pd.DataFrame([{
-                                    'Name': le_name,
-                                    'Phone': le_phone,
-                                    'Industry': le_ind,
+                                    'Name': le_name, 'Phone': le_phone, 'Industry': le_ind,
                                     'Timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                                 }])
                                 st.session_state.manual_sent_log = pd.concat([st.session_state.manual_sent_log, new_entry], ignore_index=True)
-                                
-                                # 3. Update Global Metrics
                                 st.session_state.wa_sent_today += 1
                                 gs_pulse = GSheetsHandler()
                                 gs_pulse.save_wa_count(st.session_state.wa_sent_today)
-                                st.toast(f"Contacted {le_name}! Metric updated.")
                                 st.rerun()
 
-                    # 3. Download Progress Report (New Feature)
+                    # 4. Download & Sync
+                    if not st.session_state.manual_sent_log.empty:
+                        st.divider()
+                        st.subheader("📊 Session Reporting")
+                        st.dataframe(st.session_state.manual_sent_log, use_container_width=True)
+                        
+                        buffer = io.BytesIO()
+                        try:
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                st.session_state.manual_sent_log.to_excel(writer, index=False, sheet_name='Outreach_Log')
+                        except:
+                            with pd.ExcelWriter(buffer) as writer:
+                                st.session_state.manual_sent_log.to_excel(writer, index=False, sheet_name='Outreach_Log')
+                        
+                        ts_report = datetime.datetime.now().strftime("%H-%M")
+                        st.download_button(label="📥 Download Daily Outreach Report", data=buffer.getvalue(), 
+                                         file_name=f"Lead_Hunter_Report_{ts_report}.xlsx", use_container_width=True)
                     if not st.session_state.manual_sent_log.empty:
                         st.divider()
                         st.subheader("📊 Session Progress & Reporting")
@@ -687,7 +784,13 @@ with tab_exec:
             )
             
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Lead List (CSV)", csv, "leads.csv", "text/csv", type="primary")
+            col_d1, col_d2 = st.columns(2)
+            col_d1.download_button("📥 Download Lead List (CSV)", csv, "leads.csv", "text/csv", type="primary", use_container_width=True)
+            
+            # Archive Download
+            if os.path.exists("intelligence_archive.txt"):
+                with open("intelligence_archive.txt", "rb") as f:
+                    col_d2.download_button("🧠 Download Intelligence Archive", f, "intelligence_archive.txt", "text/plain", use_container_width=True)
         else:
             results_placeholder.info("No leads captured in this session.")
 
@@ -698,6 +801,13 @@ if st.session_state.is_running:
         print(msg)
         st.session_state.logs.append(msg)
         
+        # PERSISTENT ARCHIVAL: Save every feed message to the intelligence file
+        timestamp_log = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            with open("intelligence_archive.txt", "a", encoding="utf-8") as f:
+                f.write(f"[{timestamp_log}] [FEED] {msg}\n")
+        except: pass
+
         # Update blocker status from logs
         if "Blocker Status:" in msg:
             blocker = msg.split("Blocker Status:")[1].strip()
