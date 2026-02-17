@@ -8,6 +8,7 @@ import time
 from hunter import LeadHunter
 from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
+import io
 
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
@@ -83,10 +84,14 @@ if 'results' not in st.session_state:
     st.session_state.results = []
 if 'stats' not in st.session_state:
     st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
-if 'blocker_status' not in st.session_state:
-    st.session_state.blocker_status = "🟢 Standby"
 if 'signal_mode' not in st.session_state:
     st.session_state.signal_mode = False
+if 'manual_sent_indices' not in st.session_state:
+    st.session_state.manual_sent_indices = set()
+if 'manual_crm_data' not in st.session_state:
+    st.session_state.manual_crm_data = None
+if 'manual_sent_log' not in st.session_state:
+    st.session_state.manual_sent_log = pd.DataFrame(columns=['Name', 'Phone', 'Industry', 'Timestamp'])
 
 # --- 2. SIDEBAR - WORKSPACE SELECTION ---
 st.sidebar.title("🚀 Workspace Control")
@@ -455,53 +460,149 @@ def send_whatsapp(phone, message):
                 st.success("**Top Template:** 'Real Estate - Audit' (22% Reply Rate)")
 
         elif st.session_state.app_mode == "🤳 Manual Outreach":
-            st.title("🤳 Manual Outreach (CRM)")
-            st.info("Best for high-value leads. Opens WhatsApp Web in a new tab - 100% Ban Safe.")
+            st.title("🤳 Manual Outreach (Lead CRM)")
+            st.info("Direct-access lead management. 100% ban-safe and highly flexible.")
 
-            gs = GSheetsHandler()
-            all_leads = gs.get_all_leads_for_outreach()
+            # 1. Flexible Ingestion
+            with st.expander("📬 Lead Ingestion Source", expanded=not st.session_state.get('manual_crm_data') is not None):
+                crm_source = st.radio("Choose lead origin", 
+                                     ["🏹 Integrated Hub (Internal)", "📁 Excel/CSV Upload", "🌐 Public GSheet URL"],
+                                     horizontal=True, key="crm_ingestion_mode")
+                
+                temp_df = pd.DataFrame()
+                
+                if crm_source == "🏹 Integrated Hub (Internal)":
+                    gs = GSheetsHandler()
+                    all_leads_data = gs.get_all_leads_for_outreach()
+                    if all_leads_data: 
+                        temp_df = pd.DataFrame(all_leads_data)
+                        # Map internal names to UI standard
+                        temp_df = temp_df.rename(columns={"Company": "Name", "Keyword": "Industry"})
+                
+                elif crm_source == "📁 Excel/CSV Upload":
+                    up_file = st.file_uploader("Upload Lead List", type=["xlsx", "csv"], key="crm_upload")
+                    if up_file:
+                        try:
+                            temp_df = pd.read_excel(up_file) if "xlsx" in up_file.name else pd.read_csv(up_file)
+                        except Exception as e: st.error(f"Upload failed: {e}")
+                
+                elif crm_source == "🌐 Public GSheet URL":
+                    gs_url = st.text_input("Public GSheet URL", key="crm_url", placeholder="https://docs.google.com/spreadsheets/d/...")
+                    if gs_url and "docs.google.com" in gs_url:
+                        csv_url = gs_url.replace('/edit?usp=sharing', '/export?format=csv').replace('/edit#gid=', '/export?format=csv&gid=')
+                        try: temp_df = pd.read_csv(csv_url)
+                        except: st.error("Failed to fetch. Ensure the sheet is public (Anyone with link).")
+                
+                if not temp_df.empty:
+                    st.session_state.manual_crm_data = temp_df
+                    st.success(f"Successfully loaded {len(temp_df)} leads!")
 
-            if not all_leads:
-                st.warning("No leads found with phone numbers.")
+            # 2. Display and Action UI
+            if st.session_state.manual_crm_data is None or st.session_state.manual_crm_data.empty:
+                st.warning("No leads loaded in CRM. Use the expander above to start.")
             else:
-                df_manual = pd.DataFrame(all_leads)
+                df_crm = st.session_state.manual_crm_data
                 
-                # Filters
-                col1, col2 = st.columns(2)
-                search_q = col1.text_input("Search Lead Name", "")
-                ind_filter = col2.multiselect("Industry Filter", df_manual["Keyword"].unique())
-
-                if search_q: 
-                    df_manual = df_manual[df_manual["Company"].str.contains(search_q, case=False)]
-                if ind_filter: 
-                    df_manual = df_manual[df_manual["Keyword"].isin(ind_filter)]
-
-                st.subheader(f"Qualified Leads ({len(df_manual)})")
+                # Persistent Filtering (Hide indices already in sent_indices)
+                active_df = df_crm[~df_crm.index.isin(st.session_state.manual_sent_indices)]
                 
-                for idx, row in df_manual.iterrows():
-                    with st.container(border=True):
-                        c_info, c_msg, c_act = st.columns([2, 3, 1])
+                c_f1, c_f2 = st.columns(2)
+                search_q = c_f1.text_input("Search Name/Company", "", key="crm_search_bar")
+                
+                # Flexible Industry Filtering
+                possible_ind_cols = ["Industry", "Industry/Keyword", "Keyword", "Source", "Category"]
+                ind_col = next((c for c in possible_ind_cols if c in active_df.columns), None)
+                
+                if ind_col:
+                    ind_filter = c_f2.multiselect("Industry Filter", active_df[ind_col].unique(), key="crm_ind_filter_box")
+                    if ind_filter: active_df = active_df[active_df[ind_col].isin(ind_filter)]
+                
+                if search_q:
+                    name_col = next((c for c in ["Name", "Company", "Title", "Contact"] if c in active_df.columns), active_df.columns[0])
+                    active_df = active_df[active_df[name_col].str.contains(search_q, case=False, na=False)]
+
+                st.subheader(f"Active Queue ({len(active_df)})")
+                
+                if active_df.empty:
+                    st.info("Queue clear! Reach out to more leads or reset progress Below.")
+                    if st.button("Reset Entire CRM Progress", type="primary"):
+                        st.session_state.manual_sent_indices = set()
+                        st.rerun()
+                else:
+                    # Layout as compact Action Cards
+                    for idx, row in active_df.iterrows():
+                        with st.container(border=True):
+                            c_card_info, c_card_msg, c_card_act = st.columns([2, 3, 1])
+                            
+                            # Standardize mapping for display from varying sheet formats
+                            le_name = row.get("Name") or row.get("Company") or row.get("name") or f"Lead ID:{idx}"
+                            le_phone = str(row.get("Phone") or row.get("phone") or row.get("Number") or row.get("Phone No") or "N/A")
+                            le_ind = row.get("Industry") or row.get("Keyword") or row.get("Source") or "General"
+                            le_web = row.get("Website") or row.get("website") or row.get("URL") or "N/A"
+                            
+                            c_card_info.markdown(f"**{le_name}**")
+                            c_card_info.caption(f"📌 {le_ind} | 📞 {le_phone}")
+                            if le_web != "N/A": 
+                                if str(le_web).startswith("http"): c_card_info.caption(f"🌎 [Visit Site]({le_web})")
+                                else: c_card_info.caption(f"🌎 {le_web}")
+                            
+                            # Professional Message Template
+                            default_msg_body = f"Hi {le_name}, I saw your business under {le_ind}. I noticed some growth opportunities. Let's talk!"
+                            custom_note_final = c_card_msg.text_area("Live Customization", value=default_msg_body, height=90, key=f"crm_note_edit_{idx}")
+                            
+                            # WhatsApp API Generation
+                            import urllib.parse
+                            le_clean_p = re.sub(r'[^0-9]', '', le_phone)
+                            # Handle common lack of country code for Indian targets
+                            if len(le_clean_p) == 10: le_clean_p = "91" + le_clean_p
+                            wa_url_final = f"https://wa.me/{le_clean_p}?text={urllib.parse.quote(custom_note_final)}"
+                            
+                            c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">Open WA</button></a>', unsafe_allow_html=True)
+                            
+                            if c_card_act.button("✅ Done", key=f"crm_mark_done_{idx}", use_container_width=True):
+                                # 1. Update status tracking sets
+                                st.session_state.manual_sent_indices.add(idx)
+                                
+                                # 2. Append to persistent log for reporting
+                                new_entry = pd.DataFrame([{
+                                    'Name': le_name,
+                                    'Phone': le_phone,
+                                    'Industry': le_ind,
+                                    'Timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                }])
+                                st.session_state.manual_sent_log = pd.concat([st.session_state.manual_sent_log, new_entry], ignore_index=True)
+                                
+                                # 3. Update Global Metrics
+                                st.session_state.wa_sent_today += 1
+                                gs_pulse = GSheetsHandler()
+                                gs_pulse.save_wa_count(st.session_state.wa_sent_today)
+                                st.toast(f"Contacted {le_name}! Metric updated.")
+                                st.rerun()
+
+                    # 3. Download Progress Report (New Feature)
+                    if not st.session_state.manual_sent_log.empty:
+                        st.divider()
+                        st.subheader("📊 Session Progress & Reporting")
+                        st.dataframe(st.session_state.manual_sent_log, use_container_width=True)
                         
-                        c_info.markdown(f"**{row['Company']}**")
-                        c_info.caption(f"📍 {row['Website']} | 🔍 {row['Source']}")
+                        # Buffer for Excel Export
+                        buffer = io.BytesIO()
+                        # Use xlsxwriter to handle formatting if available, otherwise default
+                        try:
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                st.session_state.manual_sent_log.to_excel(writer, index=False, sheet_name='Outreach_Log')
+                        except:
+                            with pd.ExcelWriter(buffer) as writer:
+                                st.session_state.manual_sent_log.to_excel(writer, index=False, sheet_name='Outreach_Log')
                         
-                        # Custom message preview
-                        default_msg = f"Hi {row['Company']}, I saw your business on {row['Source']}. I noticed some growth opportunities. Let's talk!"
-                        custom_note = c_msg.text_area("Custom Note", value=default_msg, height=80, key=f"manual_msg_{idx}")
-                        
-                        # WhatsApp Link
-                        import urllib.parse
-                        clean_p = re.sub(r'[^0-9]', '', str(row["Phone"]))
-                        if len(clean_p) == 10: clean_p = "91" + clean_p
-                        
-                        wa_url = f"https://wa.me/{clean_p}?text={urllib.parse.quote(custom_note)}"
-                        
-                        c_act.markdown(f'<br><a href="{wa_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; width: 100%;">Open WA</button></a>', unsafe_allow_html=True)
-                        if c_act.button("Mark Sent", key=f"mark_sent_{idx}"):
-                            st.session_state.wa_sent_today += 1
-                            gs.save_wa_count(st.session_state.wa_sent_today)
-                            st.toast(f"Marked {row['Company']} as contacted.")
-                            st.rerun()
+                        ts_report = datetime.datetime.now().strftime("%H-%M")
+                        st.download_button(
+                            label="📥 Download Daily Outreach Report (Excel)",
+                            data=buffer.getvalue(),
+                            file_name=f"Lead_Hunter_Report_{ts_report}.xlsx",
+                            mime="application/vnd.ms-excel",
+                            use_container_width=True
+                        )
 
     with col_settings:
         st.subheader("⚙️ Parameters")
