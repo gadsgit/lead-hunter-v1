@@ -132,25 +132,22 @@ class LeadHunter:
                 Scan this page text and extract all business leads. 
                 For each lead, find: Company Name, Industry, Contact Info (Email/Phone), and Location.
                 Text: {clean_text}
-                Return a JSON list of objects.
+                Return exactly a JSON list of objects: [{{"company_name": "...", "industry": "...", "contact": "...", "location": "..."}}].
             """,
             "naukri": f"""
                 Extract company details from this Naukri job post.
-                Find: Company Name, Location, Industry, and Role Requirements.
                 Text: {clean_text}
-                Return a JSON object.
+                Return exactly a JSON object: {{"company_name": "...", "location": "...", "industry": "...", "requirements": "..."}}.
             """,
             "99acres": f"""
                 Extract property listing details.
-                Find: Property Name, Owner/Posted By, Contact info if visible, price, and location.
                 Text: {clean_text}
-                Return a JSON object.
+                Return exactly a JSON object: {{"property_name": "...", "owner": "...", "contact": "...", "price": "...", "location": "..."}}.
             """,
             "shiksha": f"""
                 Extract college/course details.
-                Find: College name, Courses, Location, and Faculty/Contact details.
                 Text: {clean_text}
-                Return a JSON object.
+                Return exactly a JSON object: {{"college_name": "...", "courses": "...", "location": "...", "contact": "..."}}.
             """
         }
 
@@ -236,7 +233,7 @@ class LeadHunter:
     async def scrape_naukri_job(self, page, url):
         """Specific logic for Naukri job posts."""
         try:
-            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.goto(url, wait_until="load", timeout=35000)
             await self.sleep_random(3, 5)
             html = await page.content()
             data = await self.universal_ai_extract(html, prompt_type="naukri")
@@ -1552,32 +1549,64 @@ class LeadHunter:
     async def run_naukri_mission(self, search_url, update_callback=None):
         """Specialized mission for Naukri: Scrape Job -> Company Name -> Enrichment Waterfall."""
         results = []
+        job_links = []
+        
+        # Phase 1: Get URLs (Atomic Browser)
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
             try:
-                if update_callback: update_callback(f"💼 Searching Naukri: {search_url}")
-                await page.goto(search_url, wait_until="networkidle", timeout=30000)
-                await self.sleep_random(5, 7)
+                # Log RAM Status
+                import psutil
+                ram = psutil.Process().memory_info().rss / 1024 / 1024
+                if update_callback: update_callback(f"🔋 System Memory: {ram:.1f} MB")
                 
-                # Extract job URLs from the search results
+                if update_callback: update_callback(f"💼 Searching Naukri: {search_url}")
+                await page.goto(search_url, wait_until="load", timeout=40000)
+                await self.sleep_random(5, 8)
+                
+                # Blocker Check
+                title = await page.title()
+                if "Access Denied" in title or "Cloudflare" in title or not title:
+                    if update_callback: update_callback("🔴 Naukri blocked the request or page failed to load.")
+                    return []
+
+                # Extract job URLs
                 job_links = await page.evaluate("""() => {
                     const links = Array.from(document.querySelectorAll('a.title, a[href*="/job-listings-"]'));
                     return links.map(a => a.href).slice(0, 10);
                 }""")
-                
-                if update_callback: update_callback(f"🔍 Found {len(job_links)} job posts. Processing...")
-                
-                for i, job_url in enumerate(job_links):
-                    if update_callback: update_callback(f"📄 Analyzing Job [{i+1}/{len(job_links)}]: {job_url}")
+            except Exception as e:
+                if update_callback: update_callback(f"❌ Search Error: {e}")
+            finally:
+                await browser.close()
+        
+        if not job_links:
+            if update_callback: update_callback("⚠️ No job links found on the search page.")
+            return []
+
+        if update_callback: update_callback(f"🔍 Found {len(job_links)} job posts. Processing one by one...")
+
+        # Phase 2: Atomic Processing (Fresh Browser per Job to save RAM)
+        for i, job_url in enumerate(job_links):
+            if update_callback: update_callback(f"📄 Analyzing Job [{i+1}/{len(job_links)}]: {job_url}")
+            
+            async with async_playwright() as p:
+                browser, page = await self.get_browser_and_page(p)
+                try:
                     job_data = await self.scrape_naukri_job(page, job_url)
                     if job_data:
                         job_data["source"] = "Naukri Intelligence"
                         job_data["source_url"] = job_url
                         self.gsheets.save_lead(job_data, query=search_url, source="naukri")
                         results.append(job_data)
-                        if update_callback: update_callback(f"✅ Saved Company: {job_data.get('company_name', 'Unknown')}")
-            finally:
-                await browser.close()
+                        name = job_data.get('company_name') or job_data.get('Company Name') or "Unknown"
+                        if update_callback: update_callback(f"✅ Saved Company: {name}")
+                except Exception as ex:
+                    if update_callback: update_callback(f"⚠️ Error analyzing job: {ex}")
+                finally:
+                    await browser.close()
+                    gc.collect() # Force GC between jobs
+        
         return results
 
 if __name__ == "__main__":
