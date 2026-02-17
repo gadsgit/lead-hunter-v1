@@ -25,6 +25,158 @@ load_dotenv()
 if os.path.exists(".env.local"):
     load_dotenv(".env.local", override=True)
 
+# --- GLOBAL INTELLIGENCE CONSTANTS ---
+NICHE_BOOSTERS = {
+    "Real Estate": ["Property Developer", "Real Estate Broker", "Asset Manager", "Construction"],
+    "Tech": ["Software Solutions", "SaaS", "IT Services", "Cloud Computing"],
+    "Health": ["Medical Clinic", "Healthcare Provider", "Wellness", "Pharma"],
+    "Finance": ["Investment Banking", "Wealth Management", "Fintech", "Insurance"],
+    "Digital Marketing": ["Marketing Agency", "SEO Consultant", "PPC Expert", "Content Strategy"]
+}
+
+DEFAULT_CITY_MAP = {
+    "Noida": "in", "Gurgaon": "in", "Gurugram": "in", "Delhi": "in", "Mumbai": "in",
+    "Dubai": "ae", "Abu Dhabi": "ae", "London": "uk", "Singapore": "sg", 
+    "New York": "www", "Miami": "www", "Sydney": "au"
+}
+
+# --- GLOBAL UTILITY FUNCTIONS ---
+def get_boosted_niche(niche_input):
+    """Returns a Boolean string of related keywords for high-intent targeting."""
+    boosters = NICHE_BOOSTERS.get(niche_input.title(), [])
+    if not boosters:
+        return f'"{niche_input}"' if niche_input else ""
+    all_terms = [niche_input] + boosters
+    return "(" + " OR ".join([f'"{term}"' for term in all_terms]) + ")"
+
+def get_country_subdomain(city_name):
+    """Maps cities to their specific LinkedIn country codes from session settings."""
+    mapping = st.session_state.get('city_map', DEFAULT_CITY_MAP)
+    return mapping.get(city_name.title(), "www")
+
+def build_nuclear_string(role, city, niche):
+    """Constructs a professional-grade 'Nuclear' Boolean string for LinkedIn X-Ray."""
+    # Clean inputs to prevent double-quote or weird encoding errors
+    clean_role = str(role).replace('"', '')
+    clean_city = str(city).replace('"', '')
+    clean_niche = str(niche).replace('"', '')
+    
+    sub = get_country_subdomain(clean_city)
+    
+    # Expand Role into Synonyms for broader reach
+    if not clean_role or clean_role == "Any":
+        role_group = '("CEO" OR "Founder" OR "Owner" OR "Managing Director" OR "President")'
+    else:
+        role_group = f'("{clean_role}" OR "Founder" OR "Owner")'
+    
+    # Expand Niche
+    niche_group = get_boosted_niche(clean_niche)
+    
+    # Exclude Noise
+    exclusions = "-intitle:jobs -inurl:jobs -inurl:dir -inurl:groups"
+    
+    # Construction
+    parts = [f"site:{sub}.linkedin.com/in/", role_group]
+    if clean_city: parts.append(f'"{clean_city}"')
+    if niche_group: parts.append(niche_group)
+    parts.append(exclusions)
+    
+    return " ".join(parts)
+
+def export_global_excel():
+    """Packs all city databases into separate sheets of a single Excel file."""
+    output = io.BytesIO()
+    if not st.session_state.get('global_db'):
+        return None
+    try:
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            for city, leads in st.session_state.global_db.items():
+                df = pd.DataFrame(leads)
+                df.to_excel(writer, sheet_name=city[:30], index=False)
+        return output.getvalue()
+    except:
+        return None
+
+def save_to_global_db(new_leads, city_name):
+    """Categorizes leads by city automatically in the Master Global Database."""
+    if not new_leads: return
+    city_name = city_name.strip().title() if city_name else "General"
+    df_new = pd.DataFrame(new_leads)
+    
+    if city_name not in st.session_state.global_db:
+        st.session_state.global_db[city_name] = new_leads
+    else:
+        # Merge and remove duplicates based on Name or Website/Link
+        df_old = pd.DataFrame(st.session_state.global_db[city_name])
+        combined = pd.concat([df_old, df_new])
+        
+        # Identity Fingerprint: Use Link/URL if available, else Company Name
+        subset_cols = [c for c in ['Link', 'website', 'url', 'Company Name', 'Name'] if c in combined.columns]
+        if subset_cols:
+            combined = combined.drop_duplicates(subset=subset_cols[:1], keep='first')
+        
+        st.session_state.global_db[city_name] = combined.to_dict('records')
+    
+    # Update master_leads if needed (unified view)
+    all_dfs = [pd.DataFrame(leads) for leads in st.session_state.global_db.values()]
+    if all_dfs:
+        st.session_state.master_leads = pd.concat(all_dfs).drop_duplicates(subset=subset_cols[:1] if subset_cols else None)
+
+def clean_global_duplicates():
+    """Removes duplicates across the entire Global Database by unifying then re-splitting."""
+    if not st.session_state.global_db: return 0
+    
+    # 1. Collect all
+    all_leads = []
+    for city, leads in st.session_state.global_db.items():
+        for l in leads:
+            l['__city_origin'] = city
+            all_leads.append(l)
+    
+    df = pd.DataFrame(all_leads)
+    initial_count = len(df)
+    
+    # 2. Deduplicate
+    subset_cols = [c for c in ['Link', 'website', 'url', 'Company Name', 'Name'] if c in df.columns]
+    if subset_cols:
+        df = df.drop_duplicates(subset=subset_cols[:1], keep='first')
+    
+    new_count = len(df)
+    
+    # 3. Re-split into global_db
+    new_db = {}
+    for _, row in df.iterrows():
+        city = row['__city_origin']
+        lead_data = row.to_dict()
+        del lead_data['__city_origin']
+        if city not in new_db: new_db[city] = []
+        new_db[city].append(lead_data)
+    
+    st.session_state.global_db = new_db
+    st.session_state.master_leads = df.drop(columns=['__city_origin']) if '__city_origin' in df.columns else df
+    return initial_count - new_count
+
+def sync_to_cloud():
+    """Pushes the current clean master_leads to Google Sheets via GSheetsHandler."""
+    if 'master_leads' not in st.session_state or st.session_state.master_leads.empty:
+        st.warning("No leads in Master Database to sync.")
+        return
+    
+    gs = GSheetsHandler()
+    if gs.connect():
+        with st.status("☁️ Syncing to Cloud...") as status:
+            count = 0
+            for _, row in st.session_state.master_leads.iterrows():
+                # We use save_lead which handles deduplication logic internally if implemented,
+                # but here we just push them to the 'Master_Leads' tab.
+                data = row.to_dict()
+                gs.save_lead(data, query=data.get('Keyword', 'Global Sync'), source="global_sync")
+                count += 1
+            status.update(label=f"✅ Cloud Sync Complete: {count} leads uploaded!", state="complete")
+        st.toast("☁️ Cloud Sync Complete!")
+    else:
+        st.error("Failed to connect to Google Sheets. Check your credentials.")
+
 # --- SMART PITCH GENERATOR ---
 def generate_smart_pitch(row):
     """Dynamically creates a pitch based on lead's detected 'Opportunities'."""
@@ -135,6 +287,12 @@ if 'manual_crm_data' not in st.session_state:
 if 'manual_sent_log' not in st.session_state:
     st.session_state.manual_sent_log = pd.DataFrame(columns=['Name', 'Phone', 'Industry', 'Timestamp'])
 
+# --- GLOBAL CRM STATE ---
+if 'global_db' not in st.session_state:
+    st.session_state.global_db = {} # Format: {'Dubai': [leads...], 'London': [...]}
+if 'city_map' not in st.session_state:
+    st.session_state.city_map = DEFAULT_CITY_MAP.copy()
+
 # --- 2. SIDEBAR - WORKSPACE SELECTION ---
 st.sidebar.title("🚀 Workspace Control")
 app_mode = st.sidebar.selectbox("Choose Hunter Mode", 
@@ -147,6 +305,60 @@ if app_mode != st.session_state.app_mode:
     st.session_state.results = [] # Clear results on mode switch to save RAM
     st.session_state.logs = []
     st.rerun()
+
+# --- SIDEBAR: MISSION CONTROL ---
+with st.sidebar:
+    st.write("---")
+    with st.expander("⚙️ Advanced Mission Settings"):
+        st.subheader("🌍 Country Code Mapping")
+        st.caption("Map cities to LinkedIn subdomains (e.g. Dubai -> ae)")
+        
+        c_set1, c_set2 = st.columns(2)
+        m_city = c_set1.text_input("City", key="sidebar_map_city")
+        m_code = c_set2.text_input("Code (in/ae/uk)", key="sidebar_map_code")
+        
+        if st.button("➕ Add Mapping", use_container_width=True):
+            if m_city and m_code:
+                st.session_state.city_map[m_city.title()] = m_code.lower()
+                st.toast(f"Mapped {m_city} to {m_code}")
+                st.rerun()
+        
+        # Display Mapping
+        if st.checkbox("Show Memory Map"):
+            st.json(st.session_state.city_map)
+
+    with st.expander("🧼 Data Hygiene & Cleanup"):
+        st.write("Keep your CRM fast and professional by removing duplicates.")
+        if st.button("✨ Run Global Deduplication", use_container_width=True):
+            removed = clean_global_duplicates()
+            if removed > 0:
+                st.success(f"Successfully removed {removed} duplicate leads across all missions.")
+            else:
+                st.info("Your database is already 100% clean!")
+
+    # --- GLOBAL DATABASE ACTIONS ---
+    if st.session_state.global_db:
+        st.write("---")
+        st.subheader("🗄️ Master Global Database")
+        st.write(f"Cities Tracked: {len(st.session_state.global_db)}")
+        
+        # Cloud Sync Button
+        if st.button("🔄 Sync Master DB to Cloud", use_container_width=True, type="primary"):
+            sync_to_cloud()
+
+        excel_data = export_global_excel()
+        if excel_data:
+            st.download_button(
+                label="📥 Download Multi-City Report",
+                data=excel_data,
+                file_name=f"Global_Mission_Data_{datetime.date.today()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary"
+            )
+        if st.button("🗑️ Reset Master DB"):
+            st.session_state.global_db = {}
+            st.rerun()
 
 # --- 3. HELPERS ---
 def get_ram_status():
@@ -253,25 +465,38 @@ with tab_plan:
                      key="search_mode")
             
             if mode == "LinkedIn X-Ray (Direct)":
-                with st.expander("🛠️ Boolean String Builder", expanded=True):
-                    c_role, c_niche, c_loc = st.columns(3)
-                    role = c_role.selectbox("Role", ["Any", "CEO", "Founder", "Owner", "Director", "Managing Director"])
-                    niche = c_niche.text_input("Niche", "", placeholder="Leave empty for Any")
-                    loc = c_loc.text_input("Location", "", placeholder="Leave empty for Any")
+                with st.expander("🛠️ Universal Nuclear Launchpad", expanded=True):
+                    c_loc, c_role, c_niche = st.columns(3)
+                    loc = c_loc.text_input("City/Location", "Dubai", key="nuclear_loc_in")
+                    role = c_role.selectbox("Target Role", ["Any", "CEO", "Founder", "Owner", "Director", "Managing Director"], key="nuclear_role_in")
+                    niche = c_niche.text_input("Niche/Industry", "Real Estate", key="nuclear_niche_in")
                     
-                    parts = []
-                    if role and role != "Any": parts.append(f'("{role}")')
-                    if niche.strip(): parts.append(f'"{niche.strip()}"')
-                    if loc.strip(): parts.append(f'"{loc.strip()}"')
+                    # Intelligence Feedback
+                    sub = get_country_subdomain(loc)
+                    st.caption(f"🌍 **Region Filter:** Using `{sub}.linkedin.com` based on location.")
+                    if niche.title() in NICHE_BOOSTERS:
+                        st.success(f"💡 **Niche Boost Engaged:** Adding {len(NICHE_BOOSTERS[niche.title()])} keywords for {niche}.")
                     
-                    generated_dork = f'site:linkedin.com/in {" AND ".join(parts)}' if parts else 'site:linkedin.com/in'
-                    st.code(generated_dork, language="text")
+                    # Construction
+                    nuclear_dork = build_nuclear_string(role, loc, niche)
+                    st.code(nuclear_dork, language="text")
                     
-                    def apply_dork(dork):
-                        if len(dork.strip()) > 18: st.session_state.target_query = dork
-                        else: st.error("Please provide a Niche or Location.")
+                    if st.button("🔥 Apply Nuclear String to Mission", use_container_width=True):
+                        st.session_state.target_query = nuclear_dork
+                        st.toast("Boolean optimization applied!")
+                        st.rerun()
+
+                    # Manual X-Ray Fallback & Troubleshooting
+                    st.divider()
+                    st.caption("🛡️ **Troubleshooting: Zero Results found?**")
+                    st.info("""
+                    1. **Domain Swap:** Try changing the City subdomain in Settings (e.g., wrap with www if 'in' fails).
+                    2. **Broaden Role:** Select 'Any' if a specific role returns zero results.
+                    3. **Manual Backup:** Use the button below to search in your own browser tab.
+                    """)
                     
-                    st.button("Apply to Target", on_click=apply_dork, args=(generated_dork,))
+                    manual_search_url = f"https://www.google.com/search?q={quote(nuclear_dork)}"
+                    st.link_button("🛠️ Open Manual X-Ray (Browser Tab)", manual_search_url, use_container_width=True)
 
         elif st.session_state.app_mode == "📂 Universal Directory":
             st.subheader("📂 Multi-Country Universal Scraper")
@@ -884,8 +1109,13 @@ if st.session_state.is_running:
                 all_leads = asyncio.run(hunter.run_universal_mission([st.session_state.education_url], prompt_type="shiksha", update_callback=update_ui))
 
         st.session_state.results = all_leads
+        
+        # CATEGORIZE IN GLOBAL DB
+        cur_city = st.session_state.get('nuclear_loc_in', "General")
+        save_to_global_db(all_leads, cur_city)
+        
         st.session_state.is_running = False
-        st.success("Mission Complete!")
+        st.success(f"Mission Complete! {len(all_leads)} leads added to {cur_city} database.")
         st.balloons()
         st.rerun()
         
