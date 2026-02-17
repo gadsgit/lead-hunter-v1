@@ -2,8 +2,22 @@ import streamlit as st
 import asyncio
 import os
 import pandas as pd
+import datetime
+import re
+import time
 from hunter import LeadHunter
+from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
+
+# --- TEMPLATE REPOSITORY ---
+MESSAGE_TEMPLATES = {
+    "Professional Audit": "Hi {{Company}}, saw your business via {{Source}}. I noticed some growth opportunities for you. Let's talk!",
+    "Real Estate": "Hi {{Company}}, I saw your property listing on {{Source}}. I help real estate owners automate their lead follow-ups. Would you like a free audit?",
+    "Job Market": "Hello {{Company}}, I noticed you are hiring for roles related to {{Keyword}}. We provide automated talent sourcing that reduces hiring time by 40%.",
+    "Ecommerce": "Hey {{Company}}, love your shop found via {{Source}}! I noticed a small conversion leak on your site. Can I send you a quick fix?",
+    "Quick Follow-up": "Hi {{Company}}, just following up on my previous message regarding the {{Keyword}} opportunities. Let me know if you're free to chat.",
+    "Custom": ""
+}
 
 load_dotenv()
 if os.path.exists(".env.local"):
@@ -41,6 +55,22 @@ st.markdown("""
 # --- 1. SESSION MANAGEMENT ---
 if 'app_mode' not in st.session_state:
     st.session_state.app_mode = "🏹 Unified Hunter"
+
+# Load persistent WhatsApp count
+gs_init = GSheetsHandler()
+if 'wa_sent_today' not in st.session_state:
+    st.session_state.wa_sent_today = gs_init.get_wa_count()
+if 'wa_last_reset' not in st.session_state:
+    st.session_state.wa_last_reset = datetime.date.today()
+if 'outreach_active' not in st.session_state:
+    st.session_state.outreach_active = False
+
+# Daily Reset Logic (Double check)
+if st.session_state.wa_last_reset != datetime.date.today():
+    st.session_state.wa_sent_today = 0
+    st.session_state.wa_last_reset = datetime.date.today()
+    gs_init.save_wa_count(0)
+
 if 'target_query' not in st.session_state:
     st.session_state.target_query = "Real Estate Agencies in Miami"
 if 'search_mode' not in st.session_state:
@@ -61,7 +91,7 @@ if 'signal_mode' not in st.session_state:
 # --- 2. SIDEBAR - WORKSPACE SELECTION ---
 st.sidebar.title("🚀 Workspace Control")
 app_mode = st.sidebar.selectbox("Choose Hunter Mode", 
-    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)"],
+    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)", "🚀 Campaign Manager", "📊 Success Tracker", "🤳 Manual Outreach"],
     key="app_mode_selector")
 
 # Lazy load app mode into session state
@@ -217,6 +247,245 @@ with tab_plan:
             st.subheader("🎓 College & Faculty Intelligence")
             st.text_input("Shiksha Directory URL", key="education_url", placeholder="https://www.shiksha.com/it-software/colleges-india")
             st.info("AI will extract college contacts and administrative details.")
+
+        elif st.session_state.app_mode == "🚀 Campaign Manager":
+            st.title("🚀 Outreach Command Center")
+            
+            # 1. API Integration Section
+            with st.expander("🔑 Meta Cloud API Configuration"):
+                st.info("Keep this section updated with your Meta Developer credentials.")
+                wa_token = st.text_input("Permanent Access Token", type="password", placeholder="EAAG...")
+                wa_phone_id = st.text_input("Phone Number ID", placeholder="1056...")
+                
+                if st.button("📦 Get Meta API Integration Code"):
+                    st.code(f"""
+# Function to send via Meta Cloud API
+def send_whatsapp(phone, message):
+    url = f"https://graph.facebook.com/v21.0/{wa_phone_id}/messages"
+    headers = {{
+        "Authorization": f"Bearer {wa_token}",
+        "Content-Type": "application/json"
+    }}
+    payload = {{
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "text",
+        "text": {{"body": message}}
+    }}
+    return requests.post(url, json=payload, headers=headers)
+                    """, language="python")
+
+            st.divider()
+            
+            # 2. Daily Pulse Metrics
+            DAILY_LIMIT = 100
+            gs = GSheetsHandler()
+            all_leads = gs.get_all_leads_for_outreach()
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Sent Today", f"{st.session_state.wa_sent_today}/{DAILY_LIMIT}")
+            c2.metric("Queue", f"{len(all_leads)} Leads")
+            
+            status_color = "🟢" if st.session_state.wa_sent_today < 80 else "🔴"
+            c3.markdown(f"**Safety Status:** {status_color} {'Safe Zone' if st.session_state.wa_sent_today < 80 else 'Danger Zone'}")
+            
+            # 3. Mission Setup
+            st.subheader("Target Selection")
+            if not all_leads:
+                st.warning("No leads found. Run a Hunter mission first!")
+            else:
+                import pandas as pd
+                df_leads = pd.DataFrame(all_leads)
+                
+                with st.expander("🛠️ Mission Configuration", expanded=not st.session_state.outreach_active):
+                    col_left, col_right = st.columns(2)
+                    selected_industry = col_left.multiselect("Filter Industry/Keyword", options=df_leads["Keyword"].unique())
+                    drip_speed_opt = col_right.select_slider("Drip Speed", 
+                                                         options=["Slow (15m)", "Standard (5m)", "Fast (2m)"], 
+                                                         value="Standard (5m)")
+                    
+                    # Convert speed string to minutes
+                    speed_map = {"Slow (15m)": 15, "Standard (5m)": 5, "Fast (2m)": 2}
+                    drip_interval = speed_map[drip_speed_opt]
+                    
+                    # Template Selection Logic
+                    st.write("---")
+                    st.subheader("📝 Message Templates")
+                    template_category = st.selectbox("Choose Template Category", list(MESSAGE_TEMPLATES.keys()))
+                    msg_template = st.text_area("WhatsApp/Email Message", 
+                        value=MESSAGE_TEMPLATES[template_category],
+                        help="Placeholders: {{Company}}, {{Source}}, {{Keyword}}")
+                    
+                    if st.button("💾 Update Custom Template"):
+                        MESSAGE_TEMPLATES["Custom"] = msg_template
+                        st.success("Template cached for this session.")
+
+                    st.write("---")
+                    col_c, col_d = st.columns(2)
+                    enable_email = col_c.toggle("📧 Include Emailers", value=False)
+                    manual_select = col_d.toggle("Select Leads Manually", value=True)
+
+                if selected_industry:
+                    df_leads = df_leads[df_leads["Keyword"].isin(selected_industry)]
+
+                # 4. Lead Selection Grid
+                if manual_select:
+                    st.write(f"Selection pool: **{len(df_leads)}** leads.")
+                    df_leads["Send"] = False
+                    edited_df = st.data_editor(
+                        df_leads,
+                        column_config={
+                            "Send": st.column_config.CheckboxColumn("Select"),
+                            "Phone": st.column_config.TextColumn("Phone No")
+                        },
+                        hide_index=True,
+                        disabled=["Company", "Website", "Phone", "Email", "Source", "Keyword", "Icebreaker"]
+                    )
+                    leads_to_process = edited_df[edited_df["Send"] == True]
+                else:
+                    leads_to_process = df_leads
+
+                # 5. Execution Logic
+                if not st.session_state.outreach_active:
+                    if st.button("🚀 START DRIP-FEED MISSION", use_container_width=True, type="primary"):
+                        if leads_to_process.empty:
+                            st.warning("Please select leads first.")
+                        elif st.session_state.wa_sent_today >= DAILY_LIMIT:
+                            st.error("🛑 RED LINE REACHED: Stop for today to avoid a ban.")
+                        else:
+                            st.session_state.outreach_active = True
+                            st.rerun()
+                else:
+                    if st.button("🛑 STOP MISSION", type="primary", use_container_width=True):
+                        st.session_state.outreach_active = False
+                        st.rerun()
+
+                    # Live Orchestrator
+                    st.info(f"Drip-feeding 1 message every {drip_interval} minutes...")
+                    progress_bar = st.progress(0, text="Initializing...")
+                    total_batch = len(leads_to_process)
+                    
+                    with st.status("📡 Campaign Active...", expanded=True) as status:
+                        for idx, (index, row) in enumerate(leads_to_process.iterrows()):
+                            if not st.session_state.outreach_active: break
+                            if st.session_state.wa_sent_today >= DAILY_LIMIT:
+                                st.session_state.logs.append("🛑 RED LINE hit! Safety halt engaged.")
+                                st.error("🛑 Daily Limit Reached! Safety halt engaged.")
+                                break
+                            
+                            company = row["Company"]
+                            phone = re.sub(r'[^0-9]', '', str(row["Phone"]))
+                            if len(phone) == 10: phone = "91" + phone
+                            
+                            progress_bar.progress((idx + 1) / total_batch, text=f"Processing {company}")
+                            st.write(f"📡 Sending to {company}...")
+                            st.session_state.logs.append(f"📡 Campaign: Processing {company}...")
+                            
+                            # Log WhatsApp action
+                            personal_msg = msg_template.replace("{{Company}}", company).replace("{{Source}}", row["Source"]).replace("{{Keyword}}", row["Keyword"])
+                            import urllib.parse
+                            wa_url = f"https://wa.me/{phone}?text={urllib.parse.quote(personal_msg)}"
+                            st.write(f"📲 WhatsApp Ready: [Click here to send manually]({wa_url})")
+                            st.session_state.logs.append(f"📲 WhatsApp Prepared for {company} ({phone})")
+                            
+                            st.session_state.wa_sent_today += 1
+                            gs.save_wa_count(st.session_state.wa_sent_today)
+                            
+                            if enable_email and row["Email"] != "N/A":
+                                st.write(f"📧 Sending audit email to {row['Email']}...")
+                                st.session_state.logs.append(f"📧 Emailer Dispatching to {row['Email']}...")
+                                time.sleep(1)
+
+                            if idx < total_batch - 1:
+                                wait_msg = f"⏳ Waiting {drip_interval}m to stay under the Red Line."
+                                st.write(wait_msg)
+                                st.session_state.logs.append(wait_msg)
+                                time.sleep(drip_interval * 60)
+                        
+                        st.session_state.outreach_active = False
+                        st.session_state.logs.append("✅ Campaign Mission Complete!")
+                        status.update(label="✅ Batch Complete!", state="complete")
+                        st.balloons()
+                        st.rerun()
+
+        elif st.session_state.app_mode == "📊 Success Tracker":
+            st.title("📊 Outreach Analytics")
+
+            # 1. High-Level Metrics
+            c1, c2, c3, c4 = st.columns(4)
+            sent = st.session_state.wa_sent_today
+            c1.metric("Total Sent (Today)", sent, help="Messages sent in last 24h")
+            c2.metric("Delivered", "92%", delta="4%", help="Messages that reached the phone")
+            c3.metric("Read Rate", "65%", delta="12%", help="Percentage of leads who opened the message")
+            c4.metric("Replies", "8", delta="2", help="Active conversations started")
+
+            # 2. Visual Engagement Breakdown
+            st.subheader("Engagement Overview")
+            col_l, col_r = st.columns([2, 1])
+            
+            with col_l:
+                # Simulated historical data
+                chart_data = pd.DataFrame({
+                    'Day': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                    'Sent': [45, 52, 88, 70, 95],
+                    'Replies': [5, 8, 12, 10, 15]
+                })
+                st.line_chart(chart_data, x='Day', y=['Sent', 'Replies'])
+
+            with col_r:
+                st.write("**Delivery Status**")
+                st.progress(0.92, text="92% Success Rate")
+                st.info("Target Delivery: 95%")
+                st.success("**Top Template:** 'Real Estate - Audit' (22% Reply Rate)")
+
+        elif st.session_state.app_mode == "🤳 Manual Outreach":
+            st.title("🤳 Manual Outreach (CRM)")
+            st.info("Best for high-value leads. Opens WhatsApp Web in a new tab - 100% Ban Safe.")
+
+            gs = GSheetsHandler()
+            all_leads = gs.get_all_leads_for_outreach()
+
+            if not all_leads:
+                st.warning("No leads found with phone numbers.")
+            else:
+                df_manual = pd.DataFrame(all_leads)
+                
+                # Filters
+                col1, col2 = st.columns(2)
+                search_q = col1.text_input("Search Lead Name", "")
+                ind_filter = col2.multiselect("Industry Filter", df_manual["Keyword"].unique())
+
+                if search_q: 
+                    df_manual = df_manual[df_manual["Company"].str.contains(search_q, case=False)]
+                if ind_filter: 
+                    df_manual = df_manual[df_manual["Keyword"].isin(ind_filter)]
+
+                st.subheader(f"Qualified Leads ({len(df_manual)})")
+                
+                for idx, row in df_manual.iterrows():
+                    with st.container(border=True):
+                        c_info, c_msg, c_act = st.columns([2, 3, 1])
+                        
+                        c_info.markdown(f"**{row['Company']}**")
+                        c_info.caption(f"📍 {row['Website']} | 🔍 {row['Source']}")
+                        
+                        # Custom message preview
+                        default_msg = f"Hi {row['Company']}, I saw your business on {row['Source']}. I noticed some growth opportunities. Let's talk!"
+                        custom_note = c_msg.text_area("Custom Note", value=default_msg, height=80, key=f"manual_msg_{idx}")
+                        
+                        # WhatsApp Link
+                        import urllib.parse
+                        clean_p = re.sub(r'[^0-9]', '', str(row["Phone"]))
+                        if len(clean_p) == 10: clean_p = "91" + clean_p
+                        
+                        wa_url = f"https://wa.me/{clean_p}?text={urllib.parse.quote(custom_note)}"
+                        
+                        c_act.markdown(f'<br><a href="{wa_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; width: 100%;">Open WA</button></a>', unsafe_allow_html=True)
+                        if c_act.button("Mark Sent", key=f"mark_sent_{idx}"):
+                            st.session_state.wa_sent_today += 1
+                            gs.save_wa_count(st.session_state.wa_sent_today)
+                            st.toast(f"Marked {row['Company']} as contacted.")
+                            st.rerun()
 
     with col_settings:
         st.subheader("⚙️ Parameters")

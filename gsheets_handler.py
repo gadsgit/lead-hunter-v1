@@ -32,6 +32,27 @@ class GSheetsHandler:
         self.sheet = None
         self.spreadsheet = None
 
+    def get_wa_count(self):
+        """Persistent daily counter for WhatsApp safety to survive reboots."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        path = "wa_stats.txt"
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    content = f.read().split(',')
+                    if content[0] == today:
+                        return int(content[1])
+            except: pass
+        return 0
+
+    def save_wa_count(self, count):
+        """Saves current count with today's date."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        with open("wa_stats.txt", "w") as f:
+            f.write(f"{today},{count}")
+
     def connect(self):
         try:
             creds = None
@@ -360,3 +381,32 @@ class GSheetsHandler:
             print(f"Mission Archived: {query}")
         except Exception as e:
             print(f"Could not archive mission: {e}")
+
+    def get_all_leads_for_outreach(self):
+        """Fetches all leads from various tabs for the WhatsApp UI."""
+        if not self.spreadsheet:
+            self.connect()
+        
+        all_leads = []
+        tabs_to_check = ["Google Leads", "Universal Leads", "Naukri Leads", "Leads", "Sheet1"]
+        
+        for tab_name in tabs_to_check:
+            try:
+                sheet = self.spreadsheet.worksheet(tab_name)
+                data = sheet.get_all_records()
+                for row in data:
+                    # Generic mapping to ensure UI consistency
+                    lead = {
+                        "Company": row.get("Company Name") or row.get("Name") or "Unknown",
+                        "Website": row.get("Website") or "N/A",
+                        "Phone": str(row.get("Phone", "N/A")),
+                        "Email": row.get("Emails") or row.get("Email") or "N/A",
+                        "Source": row.get("Source", tab_name),
+                        "Keyword": row.get("Keyword", "N/A"),
+                        "Icebreaker": row.get("Icebreaker", "")
+                    }
+                    if lead["Phone"] != "N/A" and lead["Phone"].strip():
+                        all_leads.append(lead)
+            except:
+                continue
+        return all_leads
