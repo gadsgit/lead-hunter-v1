@@ -39,6 +39,8 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 1. SESSION MANAGEMENT ---
+if 'app_mode' not in st.session_state:
+    st.session_state.app_mode = "🏹 Unified Hunter"
 if 'target_query' not in st.session_state:
     st.session_state.target_query = "Real Estate Agencies in Miami"
 if 'search_mode' not in st.session_state:
@@ -56,7 +58,20 @@ if 'blocker_status' not in st.session_state:
 if 'signal_mode' not in st.session_state:
     st.session_state.signal_mode = False
 
-# --- 2. HELPERS ---
+# --- 2. SIDEBAR - WORKSPACE SELECTION ---
+st.sidebar.title("🚀 Workspace Control")
+app_mode = st.sidebar.selectbox("Choose Hunter Mode", 
+    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)"],
+    key="app_mode_selector")
+
+# Lazy load app mode into session state
+if app_mode != st.session_state.app_mode:
+    st.session_state.app_mode = app_mode
+    st.session_state.results = [] # Clear results on mode switch to save RAM
+    st.session_state.logs = []
+    st.rerun()
+
+# --- 3. HELPERS ---
 def get_ram_status():
     import psutil
     try:
@@ -68,6 +83,7 @@ def get_ram_status():
         return 0
 
 def generate_dynamic_queries(mission_topic, location=""):
+    import random
     """Generates a fresh, professional X-Ray query variations."""
     # Bucket 1: Variations of the niche
     niches = [mission_topic, f"{mission_topic} wholesale", f"{mission_topic} distributor", f"{mission_topic} manufacturer"]
@@ -98,6 +114,7 @@ c4.metric("Duplicates", st.session_state.stats['duplicates'])
 c5.metric("Blocker Status", st.session_state.get('blocker_status', '🟢 Standby'))
 ram = get_ram_status()
 st.sidebar.metric("RAM Health", f"{ram:.0f} MB", "Safe" if ram < 450 else "High", delta_color="normal" if ram < 450 else "inverse")
+st.sidebar.info(f"Current Workspace: **{st.session_state.app_mode}**")
 
 # Main Workspace
 tab_plan, tab_exec = st.tabs(["⚙️ Configure Mission", "📡 Live Intelligence Feed"])
@@ -106,108 +123,110 @@ with tab_plan:
     col_input, col_settings = st.columns([2, 1])
     
     with col_input:
-        st.subheader("🎯 Target Definition")
-        # Direct input that updates session state
-        st.text_input("Target Keyword", key="target_query", help="E.g., 'Digital Marketing Agencies in London'")
-        
-        st.write("---")
-        st.subheader("🧠 Intelligence Mode")
-        
-        # Power Presets
-        with st.expander("⚡ High-Intent Power Filters", expanded=False):
-            c_p1, c_p2, c_p3 = st.columns(3)
-            if c_p1.button("🆕 New Business"):
-                st.session_state.target_query = "New Restaurants in Miami" # Example
-                st.session_state.search_mode = "Google Maps (Local)"
+        if st.session_state.app_mode == "🏹 Unified Hunter":
+            st.subheader("🎯 Target Definition")
+            st.text_input("Target Keyword", key="target_query", help="E.g., 'Digital Marketing Agencies in London'")
+            
+            st.write("---")
+            st.subheader("🧠 Intelligence Mode")
+            
+            # Power Presets
+            with st.expander("⚡ High-Intent Power Filters", expanded=False):
+                c_p1, c_p2, c_p3 = st.columns(3)
+                if c_p1.button("🆕 New Business"):
+                    st.session_state.target_query = "New Restaurants in Miami"
+                    st.session_state.search_mode = "Google Maps (Local)"
+                    st.rerun()
+                if c_p2.button("🚨 Emergency Svc"):
+                    st.session_state.target_query = "Emergency Plumber in London"
+                    st.session_state.search_mode = "Google Maps (Local)"
+                    st.rerun()
+                if c_p3.button("🟢 Open Now"):
+                    st.session_state.target_query = "Dentist Open Now New York"
+                    st.session_state.search_mode = "Google Maps (Local)"
+                    st.rerun()
+            
+            st.write("---")
+            st.subheader("🎯 Buying Signal Presets")
+            st.caption("Target high-intent LinkedIn posts with buying signals")
+            c_s1, c_s2, c_s3 = st.columns(3)
+            if c_s1.button("📢 Hiring Signal"):
+                st.session_state.target_query = 'site:linkedin.com/posts "hiring" AND "freelancer" AND "marketing" "USA"'
+                st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
+                st.session_state.signal_mode = True
                 st.rerun()
-            if c_p2.button("🚨 Emergency Svc"):
-                st.session_state.target_query = "Emergency Plumber in London"
-                st.session_state.search_mode = "Google Maps (Local)"
+            if c_s2.button("🛠️ Projects Signal"):
+                st.session_state.target_query = 'site:linkedin.com/posts "looking for a developer" OR "recommend an agency" "USA"'
+                st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
+                st.session_state.signal_mode = True
                 st.rerun()
-            if c_p3.button("🟢 Open Now"):
-                st.session_state.target_query = "Dentist Open Now New York"
-                st.session_state.search_mode = "Google Maps (Local)"
+            if c_s3.button("💎 Decision Makers"):
+                st.session_state.target_query = 'site:linkedin.com/in "Founder" AND "Shopify" AND "United States"'
+                st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
+                st.session_state.signal_mode = False
                 st.rerun()
-        
-        st.write("---")
-        st.subheader("🎯 Buying Signal Presets")
-        st.caption("Target high-intent LinkedIn posts with buying signals")
-        c_s1, c_s2, c_s3 = st.columns(3)
-        if c_s1.button("📢 Hiring Signal"):
-            st.session_state.target_query = 'site:linkedin.com/posts "hiring" AND "freelancer" AND "marketing" "USA"'
-            st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-            st.session_state.signal_mode = True
-            st.rerun()
-        if c_s2.button("🛠️ Projects Signal"):
-            st.session_state.target_query = 'site:linkedin.com/posts "looking for a developer" OR "recommend an agency" "USA"'
-            st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-            st.session_state.signal_mode = True
-            st.rerun()
-        if c_s3.button("💎 Decision Makers"):
-            st.session_state.target_query = 'site:linkedin.com/in "Founder" AND "Shopify" AND "United States"'
-            st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-            st.session_state.signal_mode = False
-            st.rerun()
-                
-        # Signal Mode Toggle
-        signal_mode = st.toggle("🎯 Signal Mode (Posts)", value=st.session_state.get('signal_mode', False),
-            help="Scrape LinkedIn POSTS for buying signals instead of profiles")
-        st.session_state.signal_mode = signal_mode
-        
-        mode = st.radio("Select Strategy", 
-                 ["Dual-Scan (Deep Hunt)", "Google Maps (Local)", "LinkedIn X-Ray (Direct)"],
-                 key="search_mode",
-                 help="Dual-Scan: Finds Business on Maps -> Then Finds CEO on LinkedIn.\nGoogle Maps: Fast local data only.\nX-Ray: Direct people search.")
-        
-        if mode == "LinkedIn X-Ray (Direct)":
-            with st.expander("🛠️ Boolean String Builder", expanded=True):
-                c_role, c_niche, c_loc = st.columns(3)
-                role = c_role.selectbox("Role", ["Any", "CEO", "Founder", "Owner", "Director", "Managing Director"])
-                niche = c_niche.text_input("Niche", "", placeholder="Leave empty for Any")
-                loc = c_loc.text_input("Location", "", placeholder="Leave empty for Any")
-                
-                # Dynamic Dork Construction
-                parts = []
-                if role and role != "Any": 
-                    parts.append(f'("{role}")')
-                if niche.strip(): 
-                    parts.append(f'"{niche.strip()}"')
-                if loc.strip(): 
-                    parts.append(f'"{loc.strip()}"')
-                
-                # Join with AND
-                if parts:
-                    query_body = " AND ".join(parts)
-                    generated_dork = f'site:linkedin.com/in {query_body}'
-                else:
-                    generated_dork = 'site:linkedin.com/in'
+                    
+            # Signal Mode Toggle
+            signal_mode = st.toggle("🎯 Signal Mode (Posts)", value=st.session_state.get('signal_mode', False),
+                help="Scrape LinkedIn POSTS for buying signals instead of profiles")
+            st.session_state.signal_mode = signal_mode
+            
+            mode = st.radio("Select Strategy", 
+                     ["Dual-Scan (Deep Hunt)", "Google Maps (Local)", "LinkedIn X-Ray (Direct)"],
+                     key="search_mode")
+            
+            if mode == "LinkedIn X-Ray (Direct)":
+                with st.expander("🛠️ Boolean String Builder", expanded=True):
+                    c_role, c_niche, c_loc = st.columns(3)
+                    role = c_role.selectbox("Role", ["Any", "CEO", "Founder", "Owner", "Director", "Managing Director"])
+                    niche = c_niche.text_input("Niche", "", placeholder="Leave empty for Any")
+                    loc = c_loc.text_input("Location", "", placeholder="Leave empty for Any")
+                    
+                    parts = []
+                    if role and role != "Any": parts.append(f'("{role}")')
+                    if niche.strip(): parts.append(f'"{niche.strip()}"')
+                    if loc.strip(): parts.append(f'"{loc.strip()}"')
+                    
+                    generated_dork = f'site:linkedin.com/in {" AND ".join(parts)}' if parts else 'site:linkedin.com/in'
+                    st.code(generated_dork, language="text")
+                    
+                    def apply_dork(dork):
+                        if len(dork.strip()) > 18: st.session_state.target_query = dork
+                        else: st.error("Please provide a Niche or Location.")
+                    
+                    st.button("Apply to Target", on_click=apply_dork, args=(generated_dork,))
 
-                st.code(generated_dork, language="text")
-                
-                # Callback to avoid "set state after instantiation" error
-                def apply_dork(dork):
-                    st.session_state.target_query = dork
-                
-                st.button("Apply to Target", on_click=apply_dork, args=(generated_dork,))
+        elif st.session_state.app_mode == "📂 Universal Directory":
+            st.subheader("📂 Multi-Country Universal Scraper")
+            st.caption("AI-Powered Semantic Scraping: Give URLs, get leads. No maintenance required.")
+            st.text_area("List of URLs (one per line)", key="universal_urls", placeholder="https://example.com/directory\nhttps://shiksha.com/colleges", height=200)
+            st.session_state.prompt_type = st.selectbox("Extraction Logic", ["general", "naukri", "99acres", "shiksha"], help="Guides the AI on what to look for.")
+
+        elif st.session_state.app_mode == "💼 Job Portal Hunter (Naukri)":
+            st.subheader("💼 Naukri -> Founder Workflow")
+            st.caption("Scrape Job Listings -> Identify Company -> Find Founder/CEO via Enrichment Waterfall.")
+            st.text_input("Naukri Search URL", key="naukri_url", placeholder="https://www.naukri.com/digital-marketing-jobs-in-india")
+            st.info("The bot will automatically cross-reference Google/LinkedIn for business owners.")
+
+        elif st.session_state.app_mode == "🏠 Property Hunter (99acres)":
+            st.subheader("🏠 Home Owner Lead Extraction")
+            st.text_input("99acres Listing URL", key="property_url", placeholder="https://www.99acres.com/resale-property-in-mumbai-ffid")
+            st.info("AI will extract owner details and location from the property portal.")
+
+        elif st.session_state.app_mode == "🎓 Education Hunter (Shiksha)":
+            st.subheader("🎓 College & Faculty Intelligence")
+            st.text_input("Shiksha Directory URL", key="education_url", placeholder="https://www.shiksha.com/it-software/colleges-india")
+            st.info("AI will extract college contacts and administrative details.")
 
     with col_settings:
         st.subheader("⚙️ Parameters")
         st.slider("Scrape Limit", 5, 50, 10, key="limit")
         
-        # Batch Mode
-        batch_mode = st.checkbox("🔄 Batch Mode (Multiple Cycles)", value=False, 
-                                 help="Run multiple scraping cycles with 30s cooldown between each. Safer for large datasets.")
-        if batch_mode:
-            st.slider("Batch Cycles", 1, 5, 2, key="batch_cycles", 
-                     help="Number of cycles to run. Total leads = Limit × Cycles")
-        else:
-            st.session_state.batch_cycles = 1
-            
-        # Search Booster
-        st.checkbox("🚀 Search Booster (Query Multiplier)", value=False, key="search_booster",
-                    help="Automatically generates variations of your search query to find more leads.")
-            
-        st.info("Dual-Scan requires 2x API calls (Google + LinkedIn) per lead.")
+        if st.session_state.app_mode == "🏹 Unified Hunter":
+            batch_mode = st.checkbox("🔄 Batch Mode (Multiple Cycles)", value=False)
+            if batch_mode: st.slider("Batch Cycles", 1, 5, 2, key="batch_cycles")
+            else: st.session_state.batch_cycles = 1
+            st.checkbox("🚀 Search Booster (Query Multiplier)", value=False, key="search_booster")
         
         st.write("---")
         st.subheader("🚀 Launchpad")
@@ -220,9 +239,6 @@ with tab_plan:
                 st.session_state.results = [] 
                 st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
                 st.toast("Mission Launched!", icon="🚀")
-                # Switch to tab 2 logic handled by rerunning and defaulting to it? 
-                # Streamlit doesn't support programmatic tab switch easily, user must click.
-                # But we can show a message.
                 st.rerun()
         else:
             st.button("🚫 SYSTEMS DISARMED", disabled=True, use_container_width=True)
@@ -302,14 +318,10 @@ if st.session_state.is_running:
             st.session_state.blocker_status = blocker
         elif "CAPTCHA" in msg or "Consent Block" in msg:
             st.session_state.blocker_status = "🔴 Blocked"
-        elif "Consent Handled" in msg:
-            st.session_state.blocker_status = "🟡 Consent"
-        elif "No Results" in msg:
-            st.session_state.blocker_status = "🟡 No Results"
         
-        if "Discovered:" in msg or "Scraped:" in msg or "📢" in msg or "🛠️" in msg or "💡" in msg:
+        if "Discovered:" in msg or "Scraped:" in msg or "✅ Extracted" in msg or "📍" in msg:
             st.session_state.stats['found'] += 1
-        if "Saved" in msg or "SAVED" in msg:
+        if "Saved" in msg or "SAVED" in msg or "✅ Saved" in msg:
             st.session_state.stats['inserted'] += 1
         if "Duplicate" in msg:
             st.session_state.stats['duplicates'] += 1
@@ -318,48 +330,59 @@ if st.session_state.is_running:
 
     try:
         hunter = LeadHunter(keyword=st.session_state.target_query, limit=st.session_state.limit)
+        update_ui(f"🚀 Initializing {st.session_state.app_mode}...")
         
-        update_ui(f"🚀 Initializing Hunter for: {st.session_state.target_query}")
-        mode = st.session_state.search_mode
-        update_ui(f"📡 Mode: {mode}")
-        
-        # Batch Mode Execution
-        batch_cycles = st.session_state.get('batch_cycles', 1)
         all_leads = []
         
-        for cycle in range(batch_cycles):
-            current_query = st.session_state.target_query
+        if st.session_state.app_mode == "🏹 Unified Hunter":
+            mode = st.session_state.search_mode
+            batch_cycles = st.session_state.get('batch_cycles', 1)
             
-            if st.session_state.get('search_booster', False):
-                # Try to extract location from the query if possible or use empty
-                location_match = re.search(r'in ([A-Za-z\s]+)$', current_query)
-                loc = location_match.group(1) if location_match else ""
-                clean_topic = current_query.replace(f"in {loc}", "").strip() if loc else current_query
-                current_query = generate_dynamic_queries(clean_topic, loc)
-                update_ui(f"🚀 Booster Engaged: {current_query}")
+            for cycle in range(batch_cycles):
+                current_query = st.session_state.target_query
+                if st.session_state.get('search_booster', False):
+                    # Simple booster logic
+                    current_query = generate_dynamic_queries(current_query)
+                    update_ui(f"🚀 Booster Engaged: {current_query}")
 
-            if batch_cycles > 1:
-                update_ui(f"🔄 Starting Batch Cycle {cycle + 1}/{batch_cycles}")
-            
-            if mode == "Dual-Scan (Deep Hunt)":
-                leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=True))
-            elif mode == "Google Maps (Local)":
-                leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=False))
+                if mode == "Dual-Scan (Deep Hunt)":
+                    leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=True))
+                elif mode == "Google Maps (Local)":
+                    leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=False))
+                else:
+                    leads = asyncio.run(hunter.run_linkedin_mission(keyword=current_query, update_callback=update_ui, signal_mode=st.session_state.get('signal_mode', False)))
+                
+                all_leads.extend(leads)
+                if cycle < batch_cycles - 1:
+                    update_ui("⏳ Cooldown 30s...")
+                    time.sleep(30)
+
+        elif st.session_state.app_mode == "📂 Universal Directory":
+            urls = [u.strip() for u in st.session_state.universal_urls.split('\n') if u.strip()]
+            if not urls:
+                update_ui("❌ No URLs provided.")
             else:
-                # LinkedIn X-Ray
-                leads = asyncio.run(hunter.run_linkedin_mission(
-                    keyword=current_query, 
-                    update_callback=update_ui,
-                    signal_mode=st.session_state.get('signal_mode', False)
-                ))
-            
-            all_leads.extend(leads)
-            
-            # Cooldown between cycles (except after last cycle)
-            if cycle < batch_cycles - 1:
-                update_ui(f"⏳ Cooldown: 30s before next cycle...")
-                time.sleep(30)
-            
+                all_leads = asyncio.run(hunter.run_universal_mission(urls, prompt_type=st.session_state.prompt_type, update_callback=update_ui))
+
+        elif st.session_state.app_mode == "💼 Job Portal Hunter (Naukri)":
+            if not st.session_state.naukri_url:
+                update_ui("❌ No Naukri URL provided.")
+            else:
+                all_leads = asyncio.run(hunter.run_naukri_mission(st.session_state.naukri_url, update_callback=update_ui))
+
+        elif st.session_state.app_mode == "🏠 Property Hunter (99acres)":
+            if not st.session_state.property_url:
+                update_ui("❌ No 99acres URL provided.")
+            else:
+                # We reuse run_universal_mission with property specific prompt
+                all_leads = asyncio.run(hunter.run_universal_mission([st.session_state.property_url], prompt_type="99acres", update_callback=update_ui))
+
+        elif st.session_state.app_mode == "🎓 Education Hunter (Shiksha)":
+            if not st.session_state.education_url:
+                update_ui("❌ No Shiksha URL provided.")
+            else:
+                all_leads = asyncio.run(hunter.run_universal_mission([st.session_state.education_url], prompt_type="shiksha", update_callback=update_ui))
+
         st.session_state.results = all_leads
         st.session_state.is_running = False
         st.success("Mission Complete!")
@@ -367,6 +390,8 @@ if st.session_state.is_running:
         st.rerun()
         
     except Exception as e:
+        import traceback
         update_ui(f"❌ Critical Error: {e}")
+        print(traceback.format_exc())
         st.session_state.is_running = False
         st.error(f"Error: {e}")

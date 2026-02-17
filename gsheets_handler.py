@@ -147,28 +147,60 @@ class GSheetsHandler:
 
     def save_lead(self, data, query, source="google"):
         """
-        Routes data to the correct worksheet based on source.
-        source: 'google' or 'linkedin'
+        Routes data to the correct worksheet based on source and app mode.
         """
         try:
             # Ensure connection is active
             if not self.client:
                 self.connect()
-                
-            if source == "google":
-                # Ensure sheet is selected
-                if not self.sheet:
-                    if self.spreadsheet:
-                        self.sheet = self.spreadsheet.get_worksheet(0)
-                    else:
-                        self.connect()
 
-                # Detailed row for Google Maps leads
+            # Dynamic Worksheet Routing based on App Mode
+            target_sheet_name = "Leads" # Default
+            
+            # Check for Streamlit session state if running in dashboard
+            import sys
+            app_mode = "🏹 Unified Hunter"
+            if 'streamlit' in sys.modules:
+                import streamlit as st
+                if 'app_mode' in st.session_state:
+                    app_mode = st.session_state.app_mode
+
+            if source == "linkedin":
+                target_sheet_name = "LinkedIn Leads"
+            elif "Universal" in app_mode:
+                target_sheet_name = "Universal Leads"
+            elif "Naukri" in app_mode:
+                target_sheet_name = "Naukri Leads"
+            elif "99acres" in app_mode:
+                target_sheet_name = "Property Leads"
+            elif "Shiksha" in app_mode:
+                target_sheet_name = "Education Leads"
+            elif source == "google":
+                target_sheet_name = "Google Leads"
+
+            # Get or Create Worksheet
+            sheet = self.get_or_create_worksheet(target_sheet_name, source)
+
+            # Build Row Data
+            if target_sheet_name == "LinkedIn Leads" or source == "linkedin":
                 row = [
                     query,
                     data.get('name', 'N/A'),
-                    data.get('website', 'N/A'),
-                    data.get('email', 'N/A'),
+                    data.get('url', 'N/A'),
+                    data.get('score', 0),
+                    data.get('summary', 'N/A'),
+                    data.get('decision', 'N/A'),
+                    data.get('signal', 'N/A'),
+                    data.get('icebreaker', 'N/A'),
+                    data.get('source', "LinkedIn")
+                ]
+            else:
+                # Full Enrichment Row for everything else
+                row = [
+                    query,
+                    data.get('name', data.get('company_name', data.get('property_name', 'N/A'))),
+                    data.get('website', data.get('source_url', 'N/A')),
+                    data.get('email', data.get('email_guess', 'N/A')),
                     data.get('phone', 'N/A'),
                     data.get('linkedin', 'N/A'),
                     data.get('instagram', 'N/A'),
@@ -176,7 +208,7 @@ class GSheetsHandler:
                     data.get('tech_stack', 'N/A'),
                     data.get('score', 0),
                     data.get('decision', 'N/A'),
-                    data.get('summary', 'N/A'),
+                    data.get('summary', data.get('reasoning', 'N/A')),
                     data.get('gmb_status', 'N/A'),
                     data.get('gmb_opp', 'N/A'),
                     data.get('ad_status', 'N/A'),
@@ -188,28 +220,43 @@ class GSheetsHandler:
                     data.get('xray_status', 'N/A'),
                     data.get('xray_opp', 'N/A'),
                     data.get('icebreaker', 'N/A'),
-                    data.get('source', source.capitalize())
+                    data.get('source', app_mode)
                 ]
-                # Targeting the main sheet (usually Sheet1)
-                self.safe_append(self.sheet, row)
-                print(f"✅ Google Lead saved: {data.get('name')}")
-            else:
-                # Optimized row for LinkedIn leads
-                sheet = self.get_linkedin_sheet()
-                row = [
-                    query,
-                    data.get('name', 'N/A'),
-                    data.get('url', 'N/A'),
-                    data.get('score', 0),
-                    data.get('summary', 'N/A'),
-                    data.get('decision', 'N/A'),
-                    data.get('signal', 'N/A'),
-                    data.get('icebreaker', 'N/A'),
-                    data.get('source', "LinkedIn " + ("Post" if "Post" in source.capitalize() else "Profile"))
-                ]
-                self.safe_append(sheet, row)
-                print(f"✅ LinkedIn Lead saved: {data.get('name')}")
+
+            self.safe_append(sheet, row)
+            print(f"✅ Lead saved to {target_sheet_name}: {data.get('name', 'Lead')}")
             return True
+        except Exception as e:
+            print(f"❌ Routing Error: {e}")
+            return False
+
+    def get_or_create_worksheet(self, title, source):
+        """Finds or creates a worksheet with the given title and appropriate headers."""
+        if not self.spreadsheet:
+            self.connect()
+        try:
+            return self.spreadsheet.worksheet(title)
+        except gspread.exceptions.WorksheetNotFound:
+            print(f"Creating missing tab: '{title}'")
+            if "LinkedIn" in title or source == "linkedin":
+                headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source"]
+            else:
+                headers = [
+                    "Keyword", "Name", "Website", "Emails", "Phone", "LinkedIn", 
+                    "Instagram", "Facebook", "Tech Stack",
+                    "Score", "Decision", "Summary", 
+                    "GMB Status", "GMB Opp", 
+                    "Ad Activity", "Ad Opp", 
+                    "Web Status", "Web Opp", 
+                    "Web Speed", "Speed Opp", 
+                    "X-Ray Match", "X-Ray Opp",
+                    "Icebreaker", "Source"
+                ]
+            new_sheet = self.spreadsheet.add_worksheet(title=title, rows="1000", cols="25")
+            new_sheet.append_row(headers)
+            # Apply some formatting to header
+            new_sheet.format('A1:Z1', {'textFormat': {'bold': True}, 'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9}})
+            return new_sheet
         except Exception as e:
             print(f"❌ Routing Error: {e}")
             # Try once more with fresh connection
@@ -253,23 +300,30 @@ class GSheetsHandler:
         """
         Returns a dictionary with 'urls' and 'names' sets from the sheet.
         """
-        if not self.sheet:
+        if not self.spreadsheet:
             self.connect()
             
         try:
-            all_vals = self.sheet.get_all_values()
-            if not all_vals or len(all_vals) < 2:
-                return {"urls": set(), "names": set()}
-            
-            # Column B is index 1 (Name), Column C is index 2 (Website)
+            # Check multiple possible history sheets
             names = set()
             urls = set()
-            for row in all_vals[1:]: # Skip header
-                if len(row) > 1: names.add(row[1].strip())
-                if len(row) > 2:
-                    url = row[2].strip()
-                    if url.lower() not in ["n/a", "unknown", "none", ""]:
-                        urls.add(url)
+            
+            for sheet_name in ["Google Leads", "Universal Leads", "LinkedIn Leads", "Leads", "Sheet1"]:
+                try:
+                    target_sheet = self.spreadsheet.worksheet(sheet_name)
+                    all_vals = target_sheet.get_all_values()
+                    if not all_vals or len(all_vals) < 2:
+                        continue
+                    
+                    for row in all_vals[1:]: # Skip header
+                        if len(row) > 1: names.add(row[1].strip())
+                        if len(row) > 2:
+                            url = row[2].strip()
+                            if url.lower() not in ["n/a", "unknown", "none", ""]:
+                                urls.add(url)
+                except:
+                    continue
+                    
             return {"urls": urls, "names": names}
         except Exception as e:
             print(f"Could not load history: {e}")
@@ -277,12 +331,11 @@ class GSheetsHandler:
 
     def get_finished_missions(self):
         """Returns a set of all search queries already completed."""
-        if not self.client:
+        if not self.spreadsheet:
             self.connect()
 
         try:
-            # Open the specific 'Mission_Progress' tab
-            mission_sheet = self.client.open_by_key(self.sheet_id).worksheet("Mission_Progress")
+            mission_sheet = self.get_or_create_worksheet("Mission_Progress", source="google")
             return set(mission_sheet.col_values(1))
         except Exception:
             # If the tab doesn't exist yet, return an empty set

@@ -120,6 +120,159 @@ class LeadHunter:
             
         return found_socials
 
+    async def universal_ai_extract(self, html_content, prompt_type="general"):
+        """Uses Gemini to extract structured lead data from any page text."""
+        if not self.model:
+            return {"error": "Gemini API key not configured"}
+
+        clean_text = self.truncate_for_ai(html_content, 8000)
+        
+        prompts = {
+            "general": f"""
+                Scan this page text and extract all business leads. 
+                For each lead, find: Company Name, Industry, Contact Info (Email/Phone), and Location.
+                Text: {clean_text}
+                Return a JSON list of objects.
+            """,
+            "naukri": f"""
+                Extract company details from this Naukri job post.
+                Find: Company Name, Location, Industry, and Role Requirements.
+                Text: {clean_text}
+                Return a JSON object.
+            """,
+            "99acres": f"""
+                Extract property listing details.
+                Find: Property Name, Owner/Posted By, Contact info if visible, price, and location.
+                Text: {clean_text}
+                Return a JSON object.
+            """,
+            "shiksha": f"""
+                Extract college/course details.
+                Find: College name, Courses, Location, and Faculty/Contact details.
+                Text: {clean_text}
+                Return a JSON object.
+            """
+        }
+
+        prompt = prompts.get(prompt_type, prompts["general"])
+        # Ensure JSON response
+        prompt += "\nReturn exactly in valid JSON format. If it's a list, return [{}]. If single object, return {}."
+
+        try:
+            response = self.model.generate_content(prompt)
+            text = response.text.replace("```json", "").replace("```", "").strip()
+            # Basic JSON extraction
+            start = text.find('[') if '[' in text else text.find('{')
+            end = (text.rfind(']') + 1) if ']' in text else (text.rfind('}') + 1)
+            if start != -1 and end != -1:
+                return json.loads(text[start:end])
+            return None
+        except Exception as e:
+            print(f"Universal AI Extract Error: {e}")
+            return None
+
+    async def enrichment_waterfall(self, page, company_name):
+        """
+        The Enrichment Waterfall logic:
+        1. Official Site Search
+        2. Google Dorks for Founder/CEO
+        3. Email Pattern Mining (Heuristics)
+        4. Social Cross-ref
+        """
+        data = {
+            "website": "N/A",
+            "founder": "N/A",
+            "linkedin": "N/A",
+            "email_guess": "N/A",
+            "socials": {}
+        }
+        
+        print(f"🌊 Starting Enrichment Waterfall for: {company_name}")
+        
+        # Stage 1: Official Site
+        data["website"] = await self.recover_website(page, company_name)
+        
+        # Stage 2: DNS/Dork Search for Founder
+        dork = f'site:linkedin.com/in/ "CEO" OR "Founder" "{company_name}"'
+        await page.goto(f"https://www.google.com/search?q={dork.replace(' ', '+')}")
+        await self.sleep_random(3, 5)
+        
+        links = await page.query_selector_all('a')
+        for link in links:
+            href = await link.get_attribute('href')
+            if href and "linkedin.com/in/" in href:
+                if "/url?q=" in href:
+                    match = re.search(r'url\?q=([^&]*)', href)
+                    if match: href = match.group(1)
+                data["linkedin"] = href.split('&')[0]
+                # Try to get name
+                try:
+                    container = await page.evaluate_handle('el => el.closest(".g")', link)
+                    if container:
+                        h3 = await container.as_element().query_selector('h3')
+                        data["founder"] = await h3.inner_text() if h3 else "Found on LinkedIn"
+                except: pass
+                break
+        
+        # Stage 3: Email Pattern (Domain-based guess)
+        if data["website"] != "N/A":
+            domain = data["website"].replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
+            if data["founder"] != "N/A":
+                name_parts = data["founder"].split(' ')
+                first = name_parts[0].lower() if name_parts else ""
+                last = name_parts[-1].lower() if len(name_parts) > 1 else ""
+                if first and last:
+                    data["email_guess"] = f"{first}.{last}@{domain}"
+                    
+        # Stage 4: Social Cross-ref
+        if data["website"] != "N/A":
+            try:
+                await page.goto(data["website"], wait_until="networkidle", timeout=20000)
+                data["socials"] = await self.extract_socials(page)
+            except: pass
+            
+        return data
+
+    async def scrape_naukri_job(self, page, url):
+        """Specific logic for Naukri job posts."""
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await self.sleep_random(3, 5)
+            html = await page.content()
+            data = await self.universal_ai_extract(html, prompt_type="naukri")
+            if data and isinstance(data, dict):
+                # Enrich with waterfall
+                wf = await self.enrichment_waterfall(page, data.get('company_name', ''))
+                data.update(wf)
+            return data
+        except Exception as e:
+            print(f"Naukri Scrape Error: {e}")
+            return None
+
+    async def scrape_99acres(self, page, url):
+        """Specific logic for 99acres property listings."""
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await self.sleep_random(3, 5)
+            html = await page.content()
+            data = await self.universal_ai_extract(html, prompt_type="99acres")
+            return data
+        except Exception as e:
+            print(f"99acres Scrape Error: {e}")
+            return None
+
+    async def scrape_shiksha(self, page, url):
+        """Specific logic for Shiksha colleges."""
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await self.sleep_random(3, 5)
+            html = await page.content()
+            data = await self.universal_ai_extract(html, prompt_type="shiksha")
+            return data
+        except Exception as e:
+            print(f"Shiksha Scrape Error: {e}")
+            return None
+
     async def scrape_google_maps(self, page, update_callback=None):
         print(f"Searching Google Maps for: {self.keyword}")
         if update_callback: update_callback(f"Searching Google Maps for: {self.keyword}")
@@ -538,7 +691,7 @@ class LeadHunter:
         final_dork = f'{base_dork} ("CEO" OR "Founder" OR "Owner") -intitle:jobs -inurl:jobs'
         return final_dork
 
-    async def scrape_linkedin_profiles(self, page, keyword, is_dork=False):
+    async def scrape_linkedin_profiles(self, page, keyword, is_dork=False, update_callback=None):
         """
         Scrapes LinkedIn profiles from Google search results.
         keyword: Either a plain keyword or a pre-built dork string
@@ -599,12 +752,7 @@ class LeadHunter:
         processed_urls = set()
         li_links = 0
         
-        # Diagnostic: Print the first 10 hrefs to see what Google is giving us
-        for i, link in enumerate(links[:10]):
-            try:
-                h = await link.get_attribute('href')
-                print(f"DEBUG Link {i}: {h[:100] if h else 'None'}")
-            except: pass
+        if update_callback: update_callback(f"   📊 Discovery: Found {len(links)} total links. Analyzing...")
 
         for link in links:
             if len(results) >= self.limit:
@@ -648,9 +796,10 @@ class LeadHunter:
                 results.append({"name": name, "url": clean_url, "snippet": snippet})
                 msg = f"💼 Scraped LinkedIn: {name}"
                 print(msg)
-                # The original code had update_callback here, but it's not passed to this method.
-                # If it were, it would be: if update_callback: update_callback(msg)
+                if update_callback: update_callback(msg)
 
+        if not results and update_callback:
+            update_callback("   ⚠️ No LinkedIn matches found in the discovery set.")
         return results
 
     async def scrape_linkedin_posts(self, page, keyword, is_dork=False, update_callback=None):
@@ -1014,7 +1163,7 @@ class LeadHunter:
                             # Temporarily set limit to 1 for founder search
                             original_limit = self.limit
                             self.limit = 1 
-                            xray_results = await self.scrape_linkedin_profiles(page, xray_dork)
+                            xray_results = await self.scrape_linkedin_profiles(page, xray_dork, update_callback=update_callback)
                             self.limit = original_limit # Reset limit
                             
                             if xray_results:
@@ -1119,20 +1268,21 @@ class LeadHunter:
                     # --- ATTEMPT 2: BROAD SEARCH FALLBACK ---
                     if update_callback: update_callback("⚠️ No specific results. Trying Broad LinkedIn Hunt...")
                     broad_dork = f'site:linkedin.com/in/ {target_keyword}'
-                    profiles = await self.scrape_linkedin_profiles(page, broad_dork, is_dork=True)
+                    profiles = await self.scrape_linkedin_profiles(page, broad_dork, is_dork=True, update_callback=update_callback)
                     
                     if not profiles:
                         # --- ATTEMPT 3: NATURAL LANGUAGE FALLBACK ---
                         if update_callback: update_callback("🧬 Aggressive Mode: Trying Natural Language Search...")
                         # Search without site: filter, and WITHOUT strict quotes for the full phrase
                         nat_query = f'{target_keyword} linkedin profiles'
-                        profiles = await self.scrape_linkedin_profiles(page, nat_query, is_dork=False)
+                        profiles = await self.scrape_linkedin_profiles(page, nat_query, is_dork=False, update_callback=update_callback)
                         
                         if not profiles:
                             # --- ATTEMPT 4: NUCLEAR HUNT FALLBACK ---
                             if update_callback: update_callback("☢️ Final Attempt: Nuclear LinkedIn Hunt...")
                             nuke_query = f'{target_keyword} linkedin'
-                            profiles = await self.scrape_linkedin_profiles(page, nuke_query, is_dork=True)
+                            profiles = await self.scrape_linkedin_profiles(page, nuke_query, 
+                                                   is_dork=True, update_callback=update_callback)
                             
                             if not profiles:
                                 blocker_status = "🟡 No Results Found"
@@ -1316,24 +1466,119 @@ class LeadHunter:
     def detect_source(self, query):
         """
         Smart detection: If it looks like a person search (CEO, Founder, Manager, LinkedIn)
-        it goes to LinkedIn. Otherwise, it's Google Maps.
+        it goes to LinkedIn. Otherwise, it detects niche-specific directories.
         """
-        person_terms = ["ceo", "founder", "owner", "manager", "director", "head", "vp", "president", "linkedin", "profile"]
         q_lower = query.lower()
+        person_terms = ["ceo", "founder", "owner", "manager", "director", "head", "vp", "president", "linkedin", "profile"]
+        job_terms = ["hiring", "job", "vacancy", "career", "work at"]
+        property_terms = ["flat for sale", "property in", "resale property", "house for sale", "rent plot"]
+        edu_terms = ["college", "university", "admission", "course info"]
+
         if any(term in q_lower for term in person_terms):
             return "linkedin"
+        if any(term in q_lower for term in job_terms):
+            return "naukri"
+        if any(term in q_lower for term in property_terms):
+            return "99acres"
+        if any(term in q_lower for term in edu_terms):
+            return "shiksha"
         return "google"
 
     async def run_smart_mission(self, query, update_callback=None):
         source = self.detect_source(query)
-        # If it looks like a business search, we default to the "Enriched" Google Mission now
         if source == "linkedin":
             if update_callback: update_callback(f"🧠 Smart Routing: Detected LinkedIn target for '{query}'")
             return await self.run_linkedin_mission(query, update_callback)
+        elif source == "naukri":
+            if update_callback: update_callback(f"🧠 Smart Routing: Detected Job Market target. Searching Naukri...")
+            # We need a search URL for Naukri, generate a basic one
+            search_url = f"https://www.naukri.com/{query.replace(' ', '-')}-jobs"
+            return await self.run_naukri_mission(search_url, update_callback)
+        elif source == "99acres":
+            if update_callback: update_callback(f"🧠 Smart Routing: Detected Real Estate target. Searching 99acres...")
+            search_url = f"https://www.99acres.com/search/property/buy/residential-all/{query.replace(' ', '-')}"
+            return await self.run_universal_mission([search_url], prompt_type="99acres", update_callback=update_callback)
+        elif source == "shiksha":
+            if update_callback: update_callback(f"🧠 Smart Routing: Detected Education target. Searching Shiksha...")
+            search_url = f"https://www.shiksha.com/search-result?q={query.replace(' ', '+')}"
+            return await self.run_universal_mission([search_url], prompt_type="shiksha", update_callback=update_callback)
         else:
             if update_callback: update_callback(f"🧠 Smart Routing: Detected Local Business target for '{query}'")
-            # Smart mode now defaults to Dual Scan (Enrichment)
             return await self.run_mission(query, update_callback, enrich_with_xray=True)
+
+    async def run_universal_mission(self, urls, prompt_type="general", update_callback=None):
+        """Processes a list of URLs using the Universal AI Scraper."""
+        results = []
+        total = len(urls)
+        
+        async with async_playwright() as p:
+            browser, page = await self.get_browser_and_page(p)
+            try:
+                for i, url in enumerate(urls):
+                    if update_callback: update_callback(f"🌐 Scraping [{i+1}/{total}]: {url}")
+                    
+                    try:
+                        await page.goto(url, wait_until="networkidle", timeout=30000)
+                        await self.sleep_random(2, 4)
+                        html = await page.content()
+                        
+                        extracted = await self.universal_ai_extract(html, prompt_type=prompt_type)
+                        
+                        if extracted:
+                            # If it returns a list, extend, else append
+                            if isinstance(extracted, list):
+                                for item in extracted:
+                                    item["source_url"] = url
+                                    item["source"] = f"Universal ({prompt_type})"
+                                    self.gsheets.save_lead(item, query=url, source="universal")
+                                    results.append(item)
+                            else:
+                                extracted["source_url"] = url
+                                extracted["source"] = f"Universal ({prompt_type})"
+                                self.gsheets.save_lead(extracted, query=url, source="universal")
+                                results.append(extracted)
+                            
+                            if update_callback: update_callback(f"✅ Extracted {len(extracted) if isinstance(extracted, list) else 1} leads from {url}")
+                        else:
+                            if update_callback: update_callback(f"⚠️ AI failed to extract data from {url}")
+                            
+                    except Exception as e:
+                        if update_callback: update_callback(f"❌ Error on {url}: {e}")
+            finally:
+                await browser.close()
+        
+        return results
+
+    async def run_naukri_mission(self, search_url, update_callback=None):
+        """Specialized mission for Naukri: Scrape Job -> Company Name -> Enrichment Waterfall."""
+        results = []
+        async with async_playwright() as p:
+            browser, page = await self.get_browser_and_page(p)
+            try:
+                if update_callback: update_callback(f"💼 Searching Naukri: {search_url}")
+                await page.goto(search_url, wait_until="networkidle", timeout=30000)
+                await self.sleep_random(5, 7)
+                
+                # Extract job URLs from the search results
+                job_links = await page.evaluate("""() => {
+                    const links = Array.from(document.querySelectorAll('a.title, a[href*="/job-listings-"]'));
+                    return links.map(a => a.href).slice(0, 10);
+                }""")
+                
+                if update_callback: update_callback(f"🔍 Found {len(job_links)} job posts. Processing...")
+                
+                for i, job_url in enumerate(job_links):
+                    if update_callback: update_callback(f"📄 Analyzing Job [{i+1}/{len(job_links)}]: {job_url}")
+                    job_data = await self.scrape_naukri_job(page, job_url)
+                    if job_data:
+                        job_data["source"] = "Naukri Intelligence"
+                        job_data["source_url"] = job_url
+                        self.gsheets.save_lead(job_data, query=search_url, source="naukri")
+                        results.append(job_data)
+                        if update_callback: update_callback(f"✅ Saved Company: {job_data.get('company_name', 'Unknown')}")
+            finally:
+                await browser.close()
+        return results
 
 if __name__ == "__main__":
     # Test run

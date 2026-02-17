@@ -45,5 +45,28 @@ This file tracks the "Remembered" states of the project - what worked perfectly 
 -   **Review Funnel:** Pitch used for low review counts.
 -   **High-Intent Filters:** Pre-configured buttons for "Open Now", "New Business", and "Emergency".
 
+## 🔵 Milestone 3: Global Universal Intelligence v3 (2026-02-17)
+- **Status:** DEPLOYED
+- **Achievement:** Transformed into a "Universal Scraper" using AI-Powered Semantic Extraction.
+
+### 🚀 New Capabilities
+1.  **Universal AI Scraper:**
+    -   Uses Gemini to "read" any page text and extract Company, Industry, Contact Info.
+    -   Works across any country (US, UK, NL, EU) and any industry without coding rules.
+2.  **The Enrichment Waterfall:**
+    -   Bypasses LinkedIn direct scraping blocks.
+    -   Workflow: Scrape Signal (Job/Listing) -> Official Site Search -> Dork Search for Founder -> Email Pattern Guessing -> Social Cross-ref.
+3.  **Multi-Workspace Mission Control:**
+    -   **Naukri Intelligence:** Read job posts to find hiring companies and their owners.
+    -   **Property Hunter (99acres):** Extract home owner leads from property portals.
+    -   **Education Hunter (Shiksha):** Extract college faculty and contact details.
+    -   **Universal Directory:** Batch process URL lists from any directory site.
+4.  **Dynamic GSheets Routing:**
+    -   Automatically creates and saves leads to specialized tabs: `Universal Leads`, `Naukri Leads`, `Property Leads`, `Education Leads`.
+5.  **Smart Routing Engine:**
+    -   Detects query intent (Jobs, Properties, University, CEO/Founder, Business) and chooses the best scraper automatically.
+6.  **Memory Management:**
+    -   Lazy-loading workspaces and aggressive browser context flushing to stay within 512MB RAM limits.
+
 ---
-*Note: Always refer back to this checkpoint if new changes break the lead insertion logic.*
+*Note: This milestone marks the transition from a niche lead scraper to a global directory engine.*
