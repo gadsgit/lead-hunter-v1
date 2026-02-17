@@ -211,17 +211,49 @@ class LeadHunter:
                 except: pass
                 break
         
-        # Stage 3: Email Pattern (Domain-based guess)
-        if data["website"] != "N/A":
-            domain = data["website"].replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
-            if data["founder"] != "N/A":
+        # Stage 4: Team Page Discovery (New - Suggested by User)
+        if data["founder"] == "N/A" and data["website"] != "N/A":
+            try:
+                # Try common paths to find real names
+                for path in ["/about", "/about-us", "/our-team", "/management", "/leadership"]:
+                    try:
+                        target = data["website"].rstrip('/') + path
+                        await page.goto(target, wait_until="load", timeout=15000)
+                        text = await page.inner_text("body")
+                        # Simple semantic match for leadership names
+                        match = re.search(r"([A-Z][a-z]+ [A-Z][a-z]+) (?:is the )?(Founder|CEO|Owner|Director|Managing Director|CMO|CTO)", text)
+                        if match:
+                            data["founder"] = f"{match.group(1)} ({match.group(2)})"
+                            break
+                    except: continue
+            except: pass
+
+        # Stage 5: Twitter/X Dorking (New - Suggested by User)
+        if data["founder"] == "N/A":
+            try:
+                twitter_dork = f'site:twitter.com OR site:x.com "{company_name}" founder'
+                await page.goto(f"https://www.google.com/search?q={twitter_dork.replace(' ', '+')}", wait_until="load", timeout=15000)
+                await self.sleep_random(2, 4)
+                tw_match = await page.evaluate("""() => {
+                    const h3 = document.querySelector('h3');
+                    return h3 ? h3.innerText : null;
+                }""")
+                if tw_match: data["founder"] = f"{tw_match} (via Twitter)"
+            except: pass
+
+        # Stage 6: Email Pattern Guessing (Final stage)
+        if data["website"] != "N/A" and data["founder"] != "N/A":
+            try:
+                domain = data["website"].replace("https://", "").replace("http://", "").replace("www.", "").split('/')[0]
                 name_parts = data["founder"].split(' ')
-                first = name_parts[0].lower() if name_parts else ""
-                last = name_parts[-1].lower() if len(name_parts) > 1 else ""
-                if first and last:
-                    data["email_guess"] = f"{first}.{last}@{domain}"
-                    
-        # Stage 4: Social Cross-ref
+                first = name_parts[0].lower().strip()
+                last = name_parts[-1].lower().strip() if len(name_parts) > 1 else ""
+                if first:
+                    if last: data["email_guess"] = f"{first}.{last}@{domain}"
+                    else: data["email_guess"] = f"{first}@{domain}"
+            except: pass
+
+        # Stage 7: Social Cross-ref
         if data["website"] != "N/A":
             try:
                 await page.goto(data["website"], wait_until="networkidle", timeout=20000)
@@ -1515,8 +1547,13 @@ class LeadHunter:
                     if update_callback: update_callback(f"🌐 Scraping [{i+1}/{total}]: {url}")
                     
                     try:
-                        await page.goto(url, wait_until="networkidle", timeout=30000)
+                        await page.goto(url, wait_until="load", timeout=35000)
                         await self.sleep_random(2, 4)
+                        
+                        # Human Scroll for Lazy Loading
+                        await page.evaluate("window.scrollBy(0, document.body.scrollHeight / 2)")
+                        await asyncio.sleep(2)
+                        
                         html = await page.content()
                         
                         extracted = await self.universal_ai_extract(html, prompt_type=prompt_type)
@@ -1563,6 +1600,12 @@ class LeadHunter:
                 if update_callback: update_callback(f"💼 Searching Naukri: {search_url}")
                 await page.goto(search_url, wait_until="load", timeout=40000)
                 await self.sleep_random(5, 8)
+                
+                # Human Scroll Loop for Lazy Loading (Suggested by User)
+                if update_callback: update_callback("🖱️ Simulating Human Scroll to load all jobs...")
+                for s in range(3):
+                    await page.evaluate("window.scrollBy(0, document.body.scrollHeight / 3)")
+                    await asyncio.sleep(2)
                 
                 # Blocker Check
                 title = await page.title()
