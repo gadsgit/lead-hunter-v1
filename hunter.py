@@ -64,14 +64,17 @@ class LeadHunter:
         await asyncio.sleep(random.uniform(min_s, max_s))
 
     def get_stealth_headers(self):
-        """Generates real-world browser headers to bypass bot detection."""
+        """Generates real-world browser headers to bypass bot detection for Indian high-security targets."""
         user_agent = ua_generator.random if ua_generator else random.choice(USER_AGENTS)
         return {
             "User-Agent": user_agent,
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": "en-IN,en;q=0.9,en-US;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
-            "Referer": "https://www.google.com/",
-            "DNT": "1"  # Do Not Track request
+            "Referer": "https://www.google.co.in/",
+            "Sec-CH-UA": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
+            "Sec-CH-UA-Mobile": "?0",
+            "Sec-CH-UA-Platform": '"Windows"',
+            "DNT": "1"
         }
 
     def truncate_for_ai(self, html_content, max_chars=5000):
@@ -704,131 +707,114 @@ class LeadHunter:
         """Constructs surgical Google X-Ray dorks for LinkedIn to ensure high quality leads."""
         keyword_clean = keyword.replace('"', '')
         
-        # If user provided a specific dork, use it with minimal additions
+        # If user provided a specific dork, use it as-is
         if "site:" in keyword.lower():
             return keyword
             
+        # Expanded titles for broader reach
+        titles = '("CEO" OR "Founder" OR "Owner" OR "Managing Director" OR "Partner" OR "President" OR "CMO" OR "CTO")'
+        
         # If it's a niche search, add decision maker terms
         if len(keyword_clean.split()) > 2:
-            # Extremely flexible dork: find the keywords anywhere, but prioritize profiles
-            # site:linkedin.com/in/ auto repair shop nj ("CEO" OR "Owner")
+            # Flexible dork: site:linkedin.com/in auto repair shop nj
             base_dork = f'site:linkedin.com/in/ {keyword_clean}'
         else:
-            base_dork = f'site:linkedin.com/in/ "{keyword}"'
+            # Strict niche: site:linkedin.com/in/ "Plumbing"
+            base_dork = f'site:linkedin.com/in/ "{keyword_clean}"'
         
-        # Add titles for decision makers
-        final_dork = f'{base_dork} ("CEO" OR "Founder" OR "Owner") -intitle:jobs -inurl:jobs'
+        # Add titles and exclude job/hr noise
+        final_dork = f'{base_dork} {titles} -intitle:jobs -inurl:jobs -inurl:recruiter'
         return final_dork
 
     async def scrape_linkedin_profiles(self, page, keyword, is_dork=False, update_callback=None):
         """
         Scrapes LinkedIn profiles from Google search results.
-        keyword: Either a plain keyword or a pre-built dork string
-        is_dork: If True, use keyword as-is. If False, generate dork from keyword.
         """
-        print(f"Executing X-Ray Hijack for: {keyword}")
-        
-        # Only generate dork if not already provided
         if is_dork:
             dork = keyword
         else:
             dork = self.generate_dork(keyword)
             
         search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
-        
-        print(f"LinkedIn X-Ray URL: {search_url}")
+        if update_callback: update_callback(f"🧬 LinkedIn X-Ray: {search_url}")
         
         try:
-            await page.goto(search_url, wait_until="networkidle", timeout=30000)
-        except:
-            await page.goto(f"https://www.google.com/search?q={dork.replace(' ', '+')}")
-        
-        # Handle Google Consent Screen
-        try:
+            # Shift to 'load' for more stability against trackers
+            await page.goto(search_url, wait_until="load", timeout=40000)
+            await self.sleep_random(3, 5)
+            
+            # Handle Google Consent Screen
             consent_selectors = [
-                'button[aria-label="Accept all"]',
-                'button[aria-label="Agree"]',
-                'button:has-text("Accept all")',
-                'button:has-text("I agree")',
-                'button:has-text("Accept")',
-                'div[role="button"]:has-text("Accept all")',
+                'button[aria-label="Accept all"]', 'button[aria-label="Agree"]',
+                'button:has-text("Accept all")', 'button:has-text("I agree")',
+                'div[role="button"]:has-text("Accept all")'
             ]
             for selector in consent_selectors:
                 if await page.query_selector(selector):
-                    print(f"Found consent screen, clicking {selector}...")
+                    if update_callback: update_callback("🔓 Handling Google Consent...")
                     await page.click(selector)
                     await self.sleep_random(2, 4)
                     break
-        except:
-            pass
-        
-        # Jitter: Random sleep between searching and processing
-        await self.sleep_random(5, 8) 
+        except Exception as e:
+            if update_callback: update_callback(f"⚠️ Navigation warning: {str(e)[:50]}")
 
-        # DIAL HOME: Check for CAPTCHA
+        # Human Scroll to trick bot detection and load more results
+        if update_callback: update_callback("🖱️ Simulating Human Scroll on Google...")
+        for _ in range(2):
+            await page.evaluate("window.scrollBy(0, document.body.scrollHeight / 4)")
+            await asyncio.sleep(1.5)
+
+        # Blocker Status check
         page_title = await page.title()
-        if "Before you continue" in page_title or "Captcha" in page_title:
-             print(f"🔴 CAPTCHA DETECTED on Profile Search: {page_title}")
-             # We can't really bypass it here without manual intervention/proxies, but we can log it.
-             # This helps the user know WHY it's empty.
+        if "Before you continue" in page_title or "Captcha" in page_title or "blocked" in page_title.lower():
+             if update_callback: update_callback(f"🔴 Blocker Status: CAPTCHA / Bot Detected")
              return []
 
         results = []
         links = await page.query_selector_all('a')
-        
-        print(f"DEBUG: Found {len(links)} total links on Google results page for dork: {dork}")
-        
         processed_urls = set()
-        li_links = 0
         
-        if update_callback: update_callback(f"   📊 Discovery: Found {len(links)} total links. Analyzing...")
+        if update_callback: update_callback(f"🔍 Found {len(links)} links. Filtering for LinkedIn profiles...")
 
         for link in links:
-            if len(results) >= self.limit:
-                break
+            if len(results) >= self.limit: break
             
             href = await link.get_attribute('href')
-            # Moar flexible: catch profiles, companies, or public profiles
-            if href and ("linkedin.com/in/" in href or "linkedin.com/company/" in href or "linkedin.com/pub/" in href):
-                li_links += 1
+            # Broad match for linkedin urls
+            if href and ("linkedin.com/in/" in href or "linkedin.com/company/" in href):
                 # Clean Google redirect
                 if "/url?q=" in href:
-                    match = re.search(r'url\?q=([^&]*)', href)
-                    if match:
-                        href = match.group(1)
+                    match = re.search(r'url\?q=([^\&]*)', href)
+                    if match: href = match.group(1)
                 
                 clean_url = href.split('&')[0].split('?')[0]
-                if clean_url in processed_urls:
-                    continue
-                
+                if clean_url in processed_urls: continue
                 processed_urls.add(clean_url)
                 
-                # Try to get the name and snippet from the result container
                 try:
-                    # Google usually wraps results in a div. We find the closest wrapper.
-                    container = await page.evaluate_handle('el => el.closest(".g, .MjjYud")', link)
+                    # More robust container detection
+                    container = await page.evaluate_handle('el => el.closest(".g, .MjjYud, div[data-hveid]")', link)
                     if container:
                         h3 = await container.as_element().query_selector('h3')
                         name = await h3.inner_text() if h3 else "LinkedIn User"
                         
-                        # Extract the snippet (usually a div with specific container class)
-                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M, .IsZvec, .MUY17c')
+                        # Broader snippet selectors
+                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M, .IsZvec, .MUY17c, .kb0BC')
                         snippet = await snippet_el.inner_text() if snippet_el else "No snippet available"
                     else:
-                        # Fallback for name from link itself
-                        name = await link.inner_text()
+                        name = await link.inner_text() or "LinkedIn User"
                         snippet = "No snippet available"
                 except:
                     name = "LinkedIn User"
                     snippet = "No snippet available"
                 
-                results.append({"name": name, "url": clean_url, "snippet": snippet})
-                msg = f"💼 Scraped LinkedIn: {name}"
-                print(msg)
-                if update_callback: update_callback(msg)
+                # Check for "LinkedIn" in name to avoid false positives
+                if "linkedin" in name.lower() and len(name) < 15: # Skip if name is just "LinkedIn"
+                    continue
 
-        if not results and update_callback:
-            update_callback("   ⚠️ No LinkedIn matches found in the discovery set.")
+                results.append({"name": name, "url": clean_url, "snippet": snippet})
+                if update_callback: update_callback(f"👤 Discovered: {name}")
+
         return results
 
     async def scrape_linkedin_posts(self, page, keyword, is_dork=False, update_callback=None):
@@ -844,103 +830,70 @@ class LeadHunter:
         # Generate dork if not already provided
         if is_dork:
             dork = keyword
+    async def scrape_linkedin_posts(self, page, keyword, is_dork=False, update_callback=None):
+        """
+        Scrapes LinkedIn POSTS from Google search results to find buying signals.
+        """
+        if is_dork:
+            dork = keyword
         else:
             dork = f'site:linkedin.com/posts "{keyword}"'
             
         search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
-        print(f"Search URL: {search_url}")
+        if update_callback: update_callback(f"📡 Signal Search: {search_url}")
         
         blocker_status = "🟢 OK"
         
         try:
-            if update_callback: update_callback("📡 Navigating to Google...")
-            await page.goto(search_url, wait_until="networkidle", timeout=30000)
-        except:
-            if update_callback: update_callback("⚠️ Slow navigation, retrying...")
-            await page.goto(search_url)
-        
-        # STEALTH: Human "thinking" delay
-        await self.sleep_random(2, 4)
-        
-        # Handle Google Consent Screen
-        try:
-            consent_selectors = [
-                'button[aria-label="Accept all"]',
-                'button[aria-label="Agree"]',
-                'button:has-text("Accept all")',
-                'button:has-text("I agree")',
-                'div[role="button"]:has-text("Accept all")',
-            ]
+            await page.goto(search_url, wait_until="load", timeout=40000)
+            await self.sleep_random(3, 5)
+            
+            # Handle Google Consent Screen
+            consent_selectors = ['button[aria-label="Accept all"]', 'button[aria-label="Agree"]', 'div[role="button"]:has-text("Accept all")']
             for selector in consent_selectors:
                 if await page.query_selector(selector):
-                    msg = f"🔓 Handling consent screen..."
-                    print(msg)
-                    if update_callback: update_callback(msg)
                     await page.click(selector)
                     await self.sleep_random(2, 4)
                     blocker_status = "🟡 Consent Handled"
                     break
         except:
-            pass
-        
+            blocker_status = "🟡 Navigation Slow"
+
+        # Human Scroll
+        await page.evaluate("window.scrollBy(0, 500)")
+        await asyncio.sleep(1)
+
         # BLOCKER DETECTION
         page_title = await page.title()
-        if "Before you continue" in page_title or "Captcha" in page_title:
+        if "Before you continue" in page_title or "Captcha" in page_title or "blocked" in page_title.lower():
             blocker_status = "🔴 CAPTCHA/Consent Block"
-            msg = f"⚠️ Blocker Detected: {page_title}"
-            print(msg)
-            if update_callback: update_callback(msg)
+            if update_callback: update_callback(f"⚠️ Blocker: {page_title}")
             return [], blocker_status
-        
-        # Wait for search results container
-        try:
-            if update_callback: update_callback("⏳ Waiting for search results...")
-            await page.wait_for_selector('div#search', timeout=10000)
-            if update_callback: update_callback("✅ Search results loaded")
-        except:
-            blocker_status = "🟡 Slow Results"
-            msg = "⚠️ Search results loading slowly..."
-            print(msg)
-            if update_callback: update_callback(msg)
-        
-        # Additional delay for content to render
-        await self.sleep_random(2, 3)
         
         results = []
         links = await page.query_selector_all('a')
-        
-        print(f"Found {len(links)} total links on page")
-        if update_callback: update_callback(f"🔍 Scanning {len(links)} links...")
-        
         processed_urls = set()
+
         for link in links:
-            if len(results) >= self.limit:
-                break
+            if len(results) >= self.limit: break
             
             href = await link.get_attribute('href')
-            # Target both posts and profiles
             if href and ("linkedin.com/posts/" in href or "linkedin.com/in/" in href):
-                # Clean Google redirect
                 if "/url?q=" in href:
-                    match = re.search(r'url\?q=([^&]*)', href)
-                    if match:
-                        href = match.group(1)
+                    match = re.search(r'url\?q=([^\&]*)', href)
+                    if match: href = match.group(1)
                 
                 clean_url = href.split('&')[0].split('?')[0]
-                if clean_url in processed_urls:
-                    continue
-                
+                if clean_url in processed_urls: continue
                 processed_urls.add(clean_url)
                 
-                # Extract name and snippet from result container
                 try:
-                    container = await page.evaluate_handle('el => el.closest(".g, .MjjYud")', link)
+                    container = await page.evaluate_handle('el => el.closest(".g, .MjjYud, div[data-hveid]")', link)
                     if container:
                         h3 = await container.as_element().query_selector('h3')
                         name = await h3.inner_text() if h3 else "LinkedIn User"
                         
-                        # Extract snippet (this contains the buying signal!)
-                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M, .IsZvec')
+                        snippet_el = await container.as_element().query_selector('.VwiC3b, .y355M, .IsZvec, .MUY17c, .kb0BC')
                         snippet = await snippet_el.inner_text() if snippet_el else "No snippet available"
                     else:
                         name = "LinkedIn User"
@@ -949,32 +902,25 @@ class LeadHunter:
                     name = "LinkedIn User"
                     snippet = "No snippet available"
                 
-                # SIGNAL DETECTION
                 signal, signal_preview = self.detect_buying_signal(snippet)
-                
                 results.append({
                     "name": name, 
                     "url": clean_url, 
                     "snippet": snippet,
                     "signal": signal,
-                    "content_preview": signal_preview
+                    "content_preview": snippet[:100]
                 })
-                
-                msg = f"{signal} | {name[:40]}"
-                print(msg)
-                if update_callback: update_callback(msg)
+                if update_callback: update_callback(f"🎯 Signal Found: {name}")
 
-        if not results:
-            blocker_status = "🟡 No Results"
-            msg = f"⚠️ No LinkedIn posts found. Page title: {page_title}"
-            print(msg)
-            if update_callback: update_callback(msg)
-        
         return results, blocker_status
 
     async def score_linkedin_ai(self, profile_name, snippet_text, signal_type="👤 Profile"):
         if not self.model:
             return "Pending", "Pending", "LinkedIn", "Pending AI Review", "N/A"
+
+        # Handle empty snippets to avoid AI confusion
+        if snippet_text == "No snippet available" or len(snippet_text) < 10:
+             return 40, "Neutral", "LinkedIn", "Minimal context available", "I saw your profile on LinkedIn."
 
         prompt = f"""
         Analyze this LinkedIn profile snippet for '{profile_name}'.
@@ -1588,48 +1534,61 @@ class LeadHunter:
         results = []
         job_links = []
         
-        # Phase 1: Get URLs (Atomic Browser)
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
             try:
-                # Log RAM Status
-                import psutil
-                ram = psutil.Process().memory_info().rss / 1024 / 1024
-                if update_callback: update_callback(f"🔋 System Memory: {ram:.1f} MB")
-                
                 if update_callback: update_callback(f"💼 Searching Naukri: {search_url}")
                 await page.goto(search_url, wait_until="load", timeout=40000)
-                await self.sleep_random(5, 8)
+                await self.sleep_random(3, 5)
                 
-                # Human Scroll Loop for Lazy Loading (Suggested by User)
-                if update_callback: update_callback("🖱️ Simulating Human Scroll to load all jobs...")
-                for s in range(3):
-                    await page.evaluate("window.scrollBy(0, document.body.scrollHeight / 3)")
-                    await asyncio.sleep(2)
-                
-                # Blocker Check
+                # Check for immediate block
                 title = await page.title()
-                if "Access Denied" in title or "Cloudflare" in title or not title:
-                    if update_callback: update_callback("🔴 Naukri blocked the request or page failed to load.")
-                    return []
-
-                # Extract job URLs
-                job_links = await page.evaluate("""() => {
-                    const links = Array.from(document.querySelectorAll('a.title, a[href*="/job-listings-"]'));
-                    return links.map(a => a.href).slice(0, 10);
-                }""")
+                if "Access Denied" in title or "Cloudflare" in title or not title or "blocked" in title.lower():
+                    if update_callback: update_callback("🔴 Naukri Blocked Direct Access! Switching to SERP Backdoor (Google X-Ray)...")
+                    
+                    # Convert Naukri URL to a Google Query
+                    # Extract keywords from URL if possible
+                    query = "site:naukri.com/job-listings"
+                    if "naukri.com" in search_url:
+                        # Simple extraction of last part of URL as keywords
+                        clean_search = search_url.split('/')[-1].replace('-', ' ')
+                        query = f'site:naukri.com/job-listings "{clean_search}"'
+                    
+                    import urllib.parse
+                    google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+                    await page.goto(google_url, wait_until="load")
+                    await self.sleep_random(3, 5)
+                    
+                    # Extract from Google Results
+                    job_links = await page.evaluate("""() => {
+                        const links = Array.from(document.querySelectorAll('a[href*="naukri.com/job-listings-"]'));
+                        return links.map(a => a.href).slice(0, 10);
+                    }""")
+                    if update_callback: update_callback(f"🧬 SERP Backdoor: Found {len(job_links)} jobs via Google.")
+                else:
+                    # Humanized Scroll Loop (using wheel to mimic human behavior)
+                    if update_callback: update_callback("🖱️ Humanized Scroll: Simulating mouse interaction...")
+                    for _ in range(3):
+                        await page.mouse.wheel(0, random.randint(400, 900))
+                        await asyncio.sleep(random.uniform(1.5, 3.0))
+                    
+                    # Extract job URLs
+                    job_links = await page.evaluate("""() => {
+                        const links = Array.from(document.querySelectorAll('a.title, a[href*="/job-listings-"]'));
+                        return links.map(a => a.href).slice(0, 10);
+                    }""")
             except Exception as e:
                 if update_callback: update_callback(f"❌ Search Error: {e}")
             finally:
                 await browser.close()
         
         if not job_links:
-            if update_callback: update_callback("⚠️ No job links found on the search page.")
+            if update_callback: update_callback("⚠️ No job links found. Mission stalled.")
             return []
 
-        if update_callback: update_callback(f"🔍 Found {len(job_links)} job posts. Processing one by one...")
+        if update_callback: update_callback(f"🔍 Processing {len(job_links)} job posts...")
 
-        # Phase 2: Atomic Processing (Fresh Browser per Job to save RAM)
+        # Phase 2: Fresh Browser per Job
         for i, job_url in enumerate(job_links):
             if update_callback: update_callback(f"📄 Analyzing Job [{i+1}/{len(job_links)}]: {job_url}")
             
@@ -1648,7 +1607,7 @@ class LeadHunter:
                     if update_callback: update_callback(f"⚠️ Error analyzing job: {ex}")
                 finally:
                     await browser.close()
-                    gc.collect() # Force GC between jobs
+                    gc.collect() 
         
         return results
 

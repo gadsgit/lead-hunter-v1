@@ -297,38 +297,53 @@ def send_whatsapp(phone, message):
                 import pandas as pd
                 df_leads = pd.DataFrame(all_leads)
                 
-                with st.expander("🛠️ Mission Configuration", expanded=not st.session_state.outreach_active):
-                    col_left, col_right = st.columns(2)
-                    selected_industry = col_left.multiselect("Filter Industry/Keyword", options=df_leads["Keyword"].unique())
-                    drip_speed_opt = col_right.select_slider("Drip Speed", 
+                # PERSISTENT CONFIGURATION
+                with st.expander("🛠️ Mission Configuration", expanded=not st.session_state.get('outreach_active', False)):
+                    c_cfg1, c_cfg2, c_cfg3 = st.columns(3)
+                    
+                    # Mission Date Filter (New Request)
+                    mission_date = c_cfg1.date_input("Outreach Date", value=datetime.date.today(), key="mission_date_filter")
+                    
+                    selected_industry = c_cfg2.multiselect("Filter Industry/Keyword", 
+                                                         options=df_leads["Keyword"].unique(),
+                                                         key="mission_industry_filter")
+                    
+                    drip_speed_opt = c_cfg3.select_slider("Drip Speed", 
                                                          options=["Slow (15m)", "Standard (5m)", "Fast (2m)"], 
-                                                         value="Standard (5m)")
+                                                         value="Standard (5m)",
+                                                         key="mission_drip_speed")
                     
                     # Convert speed string to minutes
                     speed_map = {"Slow (15m)": 15, "Standard (5m)": 5, "Fast (2m)": 2}
                     drip_interval = speed_map[drip_speed_opt]
                     
-                    # Template Selection Logic
+                    # Template Selection Logic (With Key Persistence)
                     st.write("---")
                     st.subheader("📝 Message Templates")
-                    template_category = st.selectbox("Choose Template Category", list(MESSAGE_TEMPLATES.keys()))
+                    template_category = st.selectbox("Choose Template Category", 
+                                                   list(MESSAGE_TEMPLATES.keys()), 
+                                                   key="mission_template_category")
+                    
+                    # Use a key to ensure the message text survives any reruns
                     msg_template = st.text_area("WhatsApp/Email Message", 
                         value=MESSAGE_TEMPLATES[template_category],
-                        help="Placeholders: {{Company}}, {{Source}}, {{Keyword}}")
+                        help="Placeholders: {{Company}}, {{Source}}, {{Keyword}}",
+                        key="mission_msg_body")
                     
-                    if st.button("💾 Update Custom Template"):
+                    if st.button("💾 Save as Custom Template", key="save_custom_template_btn"):
                         MESSAGE_TEMPLATES["Custom"] = msg_template
                         st.success("Template cached for this session.")
 
                     st.write("---")
                     col_c, col_d = st.columns(2)
-                    enable_email = col_c.toggle("📧 Include Emailers", value=False)
-                    manual_select = col_d.toggle("Select Leads Manually", value=True)
+                    enable_email = col_c.toggle("📧 Include Emailers", value=False, key="mission_enable_email")
+                    manual_select = col_d.toggle("Select Leads Manually", value=True, key="mission_manual_select")
 
+                # Filter leads based on UI inputs
                 if selected_industry:
                     df_leads = df_leads[df_leads["Keyword"].isin(selected_industry)]
 
-                # 4. Lead Selection Grid
+                # 4. Lead Selection Grid (Persistent Key)
                 if manual_select:
                     st.write(f"Selection pool: **{len(df_leads)}** leads.")
                     df_leads["Send"] = False
@@ -339,7 +354,8 @@ def send_whatsapp(phone, message):
                             "Phone": st.column_config.TextColumn("Phone No")
                         },
                         hide_index=True,
-                        disabled=["Company", "Website", "Phone", "Email", "Source", "Keyword", "Icebreaker"]
+                        disabled=["Company", "Website", "Phone", "Email", "Source", "Keyword", "Icebreaker"],
+                        key="campaign_lead_selector"
                     )
                     leads_to_process = edited_df[edited_df["Send"] == True]
                 else:
