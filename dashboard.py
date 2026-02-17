@@ -9,7 +9,7 @@ from hunter import LeadHunter
 from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
 import io
-import urllib.parse
+from urllib.parse import quote
 
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
@@ -626,7 +626,7 @@ def send_whatsapp(phone, message):
                             if not has_valid_phone(le_phone):
                                 c_card_info.error("📵 Phone Missing")
                                 xray_query = f'site:linkedin.com/in/ "{le_name}" (Founder OR Owner OR CEO)'
-                                li_url = f"https://www.google.com/search?q={urllib.parse.quote(xray_query)}"
+                                li_url = f"https://www.google.com/search?q={quote(xray_query)}"
                                 c_card_info.markdown(f"[:blue[🔍 LinkedIn X-Ray Search]]({li_url})")
                             else:
                                 c_card_info.caption(f"📞 {le_phone}")
@@ -645,7 +645,7 @@ def send_whatsapp(phone, message):
                             # WhatsApp API Generation
                             le_clean_p = re.sub(r'[^0-9]', '', le_phone)
                             if len(le_clean_p) == 10: le_clean_p = "91" + le_clean_p
-                            wa_url_final = f"https://wa.me/{le_clean_p}?text={urllib.parse.quote(custom_note_final)}"
+                            wa_url_final = f"https://wa.me/{le_clean_p}?text={quote(custom_note_final)}"
                             
                             if has_valid_phone(le_phone):
                                 c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">Open WA</button></a>', unsafe_allow_html=True)
