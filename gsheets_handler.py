@@ -1,6 +1,7 @@
 import gspread
 from google.oauth2.service_account import Credentials
 import os
+import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -130,7 +131,7 @@ class GSheetsHandler:
                 "Web Status", "Web Opp", 
                 "Web Speed", "Speed Opp", 
                 "X-Ray Match", "X-Ray Opp",
-                "Icebreaker", "Source"
+                "Icebreaker", "Source", "Date Added"
             ]
             
             current_vals = self.sheet.get_all_values()
@@ -213,7 +214,8 @@ class GSheetsHandler:
                     data.get('decision', 'N/A'),
                     data.get('signal', 'N/A'),
                     data.get('icebreaker', 'N/A'),
-                    data.get('source', "LinkedIn")
+                    data.get('source', "LinkedIn"),
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ]
             else:
                 # Full Enrichment Row for everything else
@@ -241,7 +243,8 @@ class GSheetsHandler:
                     data.get('xray_status', 'N/A'),
                     data.get('xray_opp', 'N/A'),
                     data.get('icebreaker', 'N/A'),
-                    data.get('source', app_mode)
+                    data.get('source', app_mode),
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ]
 
             self.safe_append(sheet, row)
@@ -260,7 +263,7 @@ class GSheetsHandler:
         except gspread.exceptions.WorksheetNotFound:
             print(f"Creating missing tab: '{title}'")
             if "LinkedIn" in title or source == "linkedin":
-                headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source"]
+                headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source", "Date Added"]
             else:
                 headers = [
                     "Keyword", "Name", "Website", "Emails", "Phone", "LinkedIn", 
@@ -271,7 +274,7 @@ class GSheetsHandler:
                     "Web Status", "Web Opp", 
                     "Web Speed", "Speed Opp", 
                     "X-Ray Match", "X-Ray Opp",
-                    "Icebreaker", "Source"
+                    "Icebreaker", "Source", "Date Added"
                 ]
             new_sheet = self.spreadsheet.add_worksheet(title=title, rows="1000", cols="25")
             new_sheet.append_row(headers)
