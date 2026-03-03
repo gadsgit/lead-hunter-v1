@@ -178,6 +178,7 @@ def sync_to_cloud():
         st.error("Failed to connect to Google Sheets. Check your credentials.")
 
 # --- SMART PITCH GENERATOR ---
+
 def generate_smart_pitch(row):
     """Dynamically creates a pitch based on lead's detected 'Opportunities'."""
     name = row.get("Name") or row.get("Company") or "there"
@@ -198,6 +199,13 @@ def generate_smart_pitch(row):
         return f"Hi {name}, I noticed you aren't running Meta Ads. Your competitors are likely stealing your leads while you sleep. I can set up an automated lead gen system for you."
 
     return f"Hi {name}, I saw your profile and noticed some major growth opportunities for your business. I'd love to send you a quick 2-minute audit. Interested?"
+
+# --- GLOBAL CALLBACKS ---
+def apply_preset(query=None, mode=None, signal=None):
+    """Programmatically sets search parameters without widget conflicts."""
+    if query: st.session_state.target_query = query
+    if mode: st.session_state.search_mode = mode
+    if signal is not None: st.session_state.signal_mode = signal
 
 st.set_page_config(page_title="Hunter Intelligence Console", layout="wide", page_icon="🏹")
 
@@ -422,38 +430,36 @@ with tab_plan:
             # Power Presets
             with st.expander("⚡ High-Intent Power Filters", expanded=False):
                 c_p1, c_p2, c_p3 = st.columns(3)
-                if c_p1.button("🆕 New Business"):
-                    st.session_state.target_query = "New Restaurants in Miami"
-                    st.session_state.search_mode = "Google Maps (Local)"
-                    st.rerun()
-                if c_p2.button("🚨 Emergency Svc"):
-                    st.session_state.target_query = "Emergency Plumber in London"
-                    st.session_state.search_mode = "Google Maps (Local)"
-                    st.rerun()
-                if c_p3.button("🟢 Open Now"):
-                    st.session_state.target_query = "Dentist Open Now New York"
-                    st.session_state.search_mode = "Google Maps (Local)"
-                    st.rerun()
+                c_p1.button("🆕 New Business", key="btn_new_biz",
+                          on_click=apply_preset, 
+                          kwargs={"query": "New Restaurants in Miami", "mode": "Google Maps (Local)"})
+                
+                c_p2.button("🚨 Emergency Svc", key="btn_emerg_svc",
+                          on_click=apply_preset, 
+                          kwargs={"query": "Emergency Plumber in London", "mode": "Google Maps (Local)"})
+                
+                c_p3.button("🟢 Open Now", key="btn_open_now",
+                          on_click=apply_preset, 
+                          kwargs={"query": "Dentist Open Now New York", "mode": "Google Maps (Local)"})
             
             st.write("---")
             st.subheader("🎯 Buying Signal Presets")
             st.caption("Target high-intent LinkedIn posts with buying signals")
             c_s1, c_s2, c_s3 = st.columns(3)
-            if c_s1.button("📢 Hiring Signal"):
-                st.session_state.target_query = 'site:linkedin.com/posts "hiring" AND "freelancer" AND "marketing" "USA"'
-                st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-                st.session_state.signal_mode = True
-                st.rerun()
-            if c_s2.button("🛠️ Projects Signal"):
-                st.session_state.target_query = 'site:linkedin.com/posts "looking for a developer" OR "recommend an agency" "USA"'
-                st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-                st.session_state.signal_mode = True
-                st.rerun()
-            if c_s3.button("💎 Decision Makers"):
-                st.session_state.target_query = 'site:linkedin.com/in "Founder" AND "Shopify" AND "United States"'
-                st.session_state.search_mode = "LinkedIn X-Ray (Direct)"
-                st.session_state.signal_mode = False
-                st.rerun()
+            c_s1.button("📢 Hiring Signal", key="btn_hiring_sig",
+                      on_click=apply_preset,
+                      kwargs={"query": 'site:linkedin.com/posts "hiring" AND "freelancer" AND "marketing" "USA"', 
+                              "mode": "LinkedIn X-Ray (Direct)", "signal": True})
+            
+            c_s2.button("🛠️ Projects Signal", key="btn_proj_sig",
+                      on_click=apply_preset,
+                      kwargs={"query": 'site:linkedin.com/posts "looking for a developer" OR "recommend an agency" "USA"', 
+                              "mode": "LinkedIn X-Ray (Direct)", "signal": True})
+            
+            c_s3.button("💎 Decision Makers", key="btn_dm_sig",
+                      on_click=apply_preset,
+                      kwargs={"query": 'site:linkedin.com/in "Founder" AND "Shopify" AND "United States"', 
+                              "mode": "LinkedIn X-Ray (Direct)", "signal": False})
                     
             # Signal Mode Toggle
             signal_mode = st.toggle("🎯 Signal Mode (Posts)", value=st.session_state.get('signal_mode', False),
@@ -481,10 +487,9 @@ with tab_plan:
                     nuclear_dork = build_nuclear_string(role, loc, niche)
                     st.code(nuclear_dork, language="text")
                     
-                    if st.button("🔥 Apply Nuclear String to Mission", use_container_width=True):
-                        st.session_state.target_query = nuclear_dork
+                    if st.button("🔥 Apply Nuclear String to Mission", key="btn_nuclear_apply", use_container_width=True,
+                               on_click=apply_preset, kwargs={"query": nuclear_dork}):
                         st.toast("Boolean optimization applied!")
-                        st.rerun()
 
                     # Manual X-Ray Fallback & Troubleshooting
                     st.divider()
