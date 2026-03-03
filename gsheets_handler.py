@@ -119,8 +119,11 @@ class GSheetsHandler:
             print(f"Error connecting to Google Sheets: {e}")
             return False
 
-    def sync_headers(self):
+    def sync_headers(self, target_sheet=None):
         """Checks if headers match the expected layout and updates if necessary."""
+        sheet = target_sheet if target_sheet else self.sheet
+        if not sheet: return
+
         try:
             expected_headers = [
                 "Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", 
@@ -134,19 +137,22 @@ class GSheetsHandler:
                 "Icebreaker", "Source", "Date Added"
             ]
             
-            current_vals = self.sheet.get_all_values()
+            # Special case for LinkedIn specific tab
+            if "LinkedIn" in sheet.title:
+                expected_headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source", "Date Added"]
+
+            current_vals = sheet.get_all_values()
             if not current_vals:
-                print("Sheet empty. Initializing headers...")
-                self.sheet.append_row(expected_headers)
+                print(f"Sheet '{sheet.title}' empty. Initializing headers...")
+                sheet.append_row(expected_headers)
                 return
 
             current_row1 = [v.strip() for v in current_vals[0]]
             
-            # Check if any expected header is missing
-            if len(current_row1) < len(expected_headers) or "Source" not in current_row1:
-                print("Headers outdated. Updating header row...")
-                # We replace the entire first row to ensure alignment with save_lead()
-                self.sheet.update('A1', [expected_headers])
+            # Check if any expected header is missing or mismatch
+            if len(current_row1) < len(expected_headers) or "Date Added" not in current_row1:
+                print(f"Headers in '{sheet.title}' outdated. Updating header row...")
+                sheet.update('A1', [expected_headers])
         except Exception as e:
             print(f"Header Sync Error: {e}")
 
@@ -202,6 +208,9 @@ class GSheetsHandler:
 
             # Get or Create Worksheet
             sheet = self.get_or_create_worksheet(target_sheet_name, source)
+            
+            # Sync headers for this specific sheet
+            self.sync_headers(sheet)
 
             # Build Row Data
             if target_sheet_name == "LinkedIn Leads" or source == "linkedin":
@@ -307,7 +316,7 @@ class GSheetsHandler:
             return self.spreadsheet.worksheet("LinkedIn Leads")
         except gspread.exceptions.WorksheetNotFound:
             # Create sheet if missing
-            headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker"]
+            headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source", "Date Added"]
             new_sheet = self.spreadsheet.add_worksheet(title="LinkedIn Leads", rows="1000", cols="20")
             new_sheet.append_row(headers)
             return new_sheet

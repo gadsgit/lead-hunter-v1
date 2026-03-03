@@ -403,6 +403,9 @@ class LeadHunter:
         print(msg)
         if update_callback: update_callback(msg)
 
+        # Names to skip to avoid junk artifacts from Google Maps
+        BLACKLIST = ["Photos & videos", "Review summary", "Reviews", "Web results", "People also search for", "Ads", "More results", "Search results"]
+        
         processed_names = set()
         for item in items:
             if len(results) >= self.limit:
@@ -414,7 +417,9 @@ class LeadHunter:
                     name = await item.inner_text()
                 
                 name = name.strip() if name else ""
-                if not name or name in processed_names:
+                
+                # Filter out junk and blacklisted names
+                if not name or name in processed_names or any(b in name for b in BLACKLIST):
                     continue
                 
                 processed_names.add(name)
