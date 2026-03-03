@@ -852,19 +852,6 @@ class LeadHunter:
     async def scrape_linkedin_posts(self, page, keyword, is_dork=False, update_callback=None):
         """
         Scrapes LinkedIn POSTS from Google search results to find buying signals.
-        keyword: Either a plain keyword or a pre-built dork string
-        is_dork: If True, use keyword as-is. If False, generate dork from keyword.
-        Returns: (results, blocker_status)
-        """
-        print(f"🎯 Signal Scraper: Targeting LinkedIn Posts for: {keyword}")
-        if update_callback: update_callback(f"🎯 Signal Scraper: {keyword}")
-        
-        # Generate dork if not already provided
-        if is_dork:
-            dork = keyword
-    async def scrape_linkedin_posts(self, page, keyword, is_dork=False, update_callback=None):
-        """
-        Scrapes LinkedIn POSTS from Google search results to find buying signals.
         """
         if is_dork:
             dork = keyword
