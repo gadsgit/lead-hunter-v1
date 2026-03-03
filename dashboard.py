@@ -11,6 +11,20 @@ from dotenv import load_dotenv
 import io
 from urllib.parse import quote
 
+# --- 0. STATE INITIALIZATION ---
+if 'target_query' not in st.session_state:
+    st.session_state.target_query = "Real Estate Agencies in Miami"
+if 'search_mode' not in st.session_state:
+    st.session_state.search_mode = "Dual-Scan (Deep Hunt)"
+if 'app_mode' not in st.session_state:
+    st.session_state.app_mode = "🏹 Unified Hunter"
+if 'is_running' not in st.session_state:
+    st.session_state.is_running = False
+if 'results' not in st.session_state:
+    st.session_state.results = []
+if 'stats' not in st.session_state:
+    st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
+
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
     "Professional Audit": "Hi {{Company}}, saw your business via {{Source}}. I noticed some growth opportunities for you. Let's talk!",
@@ -256,8 +270,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 1. SESSION MANAGEMENT ---
-if 'app_mode' not in st.session_state:
-    st.session_state.app_mode = "🏹 Unified Hunter"
+# State already initialized at top
 
 # Load persistent WhatsApp count
 gs_init = GSheetsHandler()
@@ -274,12 +287,8 @@ if st.session_state.wa_last_reset != datetime.date.today():
     st.session_state.wa_last_reset = datetime.date.today()
     gs_init.save_wa_count(0)
 
-if 'target_query' not in st.session_state:
-    st.session_state.target_query = "Real Estate Agencies in Miami"
-if 'search_mode' not in st.session_state:
-    st.session_state.search_mode = "Dual-Scan (Deep Hunt)"
-if 'is_running' not in st.session_state:
-    st.session_state.is_running = False
+if 'logs' not in st.session_state:
+    st.session_state.logs = []
 if 'logs' not in st.session_state:
     st.session_state.logs = []
 if 'results' not in st.session_state:
@@ -483,25 +492,24 @@ with tab_plan:
                     if niche.title() in NICHE_BOOSTERS:
                         st.success(f"💡 **Niche Boost Engaged:** Adding {len(NICHE_BOOSTERS[niche.title()])} keywords for {niche}.")
                     
-                    # Construction
+                    # Reactive Construction
                     nuclear_dork = build_nuclear_string(role, loc, niche)
-                    st.code(nuclear_dork, language="text")
                     
-                    if st.button("🔥 Apply Nuclear String to Mission", key="btn_nuclear_apply", use_container_width=True,
-                               on_click=apply_preset, kwargs={"query": nuclear_dork}):
-                        st.toast("Boolean optimization applied!")
-
+                    # Render widget with the NUCLEAR query as the value - Directly updates target_query
+                    st.text_area("Final Search String (Mission Keyword)", value=nuclear_dork, key="target_query", height=100)
+                    
                     # Manual X-Ray Fallback & Troubleshooting
                     st.divider()
                     st.caption("🛡️ **Troubleshooting: Zero Results found?**")
-                    st.info("""
-                    1. **Domain Swap:** Try changing the City subdomain in Settings (e.g., wrap with www if 'in' fails).
-                    2. **Broaden Role:** Select 'Any' if a specific role returns zero results.
-                    3. **Manual Backup:** Use the button below to search in your own browser tab.
-                    """)
                     
-                    manual_search_url = f"https://www.google.com/search?q={quote(nuclear_dork)}"
-                    st.link_button("🛠️ Open Manual X-Ray (Browser Tab)", manual_search_url, use_container_width=True)
+                    if st.session_state.get('blocker_status') == "🔴 Blocker Status: CAPTCHA / Bot Detected" or st.session_state.get('blocker_status') == "🟡 No Results Found":
+                        st.error("⚠️ Google has flagged the server IP. Please use Manual Mode below.")
+                        manual_search_url = f"https://www.google.com/search?q={quote(st.session_state.target_query)}"
+                        st.link_button("🚀 Open Manual X-Ray (Bypass Blocker)", manual_search_url, use_container_width=True)
+                    else:
+                        st.info("Try changing settings or use manual backup if results are 0.")
+                        manual_search_url = f"https://www.google.com/search?q={quote(st.session_state.target_query)}"
+                        st.link_button("🛠️ Open Manual X-Ray (Browser Tab)", manual_search_url, use_container_width=True)
 
         elif st.session_state.app_mode == "📂 Universal Directory":
             st.subheader("📂 Multi-Country Universal Scraper")
@@ -985,7 +993,7 @@ with tab_exec:
                 "name", "source", "signal", "icebreaker", "content_preview", 
                 "gmb", "ad", "web", "speed", 
                 "gmb_opp", "ad_opp", "web_opp", "speed_opp", "xray_opp",
-                "founder", "tech", "website", "instagram", "facebook", "phone", "email", "score", "summary"
+                "founder", "tech", "website", "instagram", "facebook", "phone", "email", "score", "summary", "date_added"
             ]
             # Filter to existing columns
             cols = [c for c in desired_order if c in df.columns]

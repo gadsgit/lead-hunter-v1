@@ -813,14 +813,17 @@ class LeadHunter:
             
             href = await link.get_attribute('href')
             # Broad match for linkedin urls
-            if href and ("linkedin.com/in/" in href or "linkedin.com/company/" in href):
-                # Clean Google redirect
-                if "/url?q=" in href:
-                    match = re.search(r'url\?q=([^\&]*)', href)
+            if href and ("linkedin.com/in/" in href or "linkedin.com/company/" in href or ".linkedin.com/" in href):
+                # Clean Google redirect (handle url?q= and url?url= and others)
+                if "/url?" in href:
+                    match = re.search(r'url\?(?:q|url)=([^\&]*)', href)
                     if match: href = match.group(1)
+                    href = urllib.parse.unquote(href)
                 
                 clean_url = href.split('&')[0].split('?')[0]
                 if clean_url in processed_urls: continue
+                # Final check if it looks like a LinkedIn profile/company
+                if "linkedin.com/" not in clean_url: continue
                 processed_urls.add(clean_url)
                 
                 try:
@@ -897,13 +900,15 @@ class LeadHunter:
             if len(results) >= self.limit: break
             
             href = await link.get_attribute('href')
-            if href and ("linkedin.com/posts/" in href or "linkedin.com/in/" in href):
-                if "/url?q=" in href:
-                    match = re.search(r'url\?q=([^\&]*)', href)
+            if href and ("linkedin.com/posts/" in href or "linkedin.com/in/" in href or ".linkedin.com/" in href):
+                if "/url?" in href:
+                    match = re.search(r'url\?(?:q|url)=([^\&]*)', href)
                     if match: href = match.group(1)
+                    href = urllib.parse.unquote(href)
                 
                 clean_url = href.split('&')[0].split('?')[0]
                 if clean_url in processed_urls: continue
+                if "linkedin.com/" not in clean_url: continue
                 processed_urls.add(clean_url)
                 
                 try:
@@ -1230,7 +1235,8 @@ class LeadHunter:
                         "speed": company_data.get("speed_status", "N/A"),
                         "score": company_data["score"],
                         "decision": company_data.get("decision", "N/A"),
-                        "summary": company_data["summary"][:100] + "..." 
+                        "summary": company_data["summary"][:100] + "...",
+                        "date_added": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
                     final_leads.append(summary_lead)
                 except Exception as e:
@@ -1261,7 +1267,7 @@ class LeadHunter:
                 profiles, blocker_status = await self.scrape_linkedin_posts(page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
             else:
                 # Use traditional profile scraping
-                profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=is_already_dork)
+                profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
                 # Check for blocker status in profile mode too
                 page_title = await page.title()
                 if "Captcha" in page_title or "Before you continue" in page_title:
@@ -1319,7 +1325,8 @@ class LeadHunter:
                     "summary": summary,
                     "signal": profile.get("signal", "👤 Profile"),
                     "icebreaker": icebreaker,
-                    "content_preview": profile.get("content_preview", profile["snippet"][:100])
+                    "content_preview": profile.get("content_preview", profile["snippet"][:100]),
+                    "date_added": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
 
                 # Save to specific LinkedIn tab, passing the keyword
@@ -1542,6 +1549,7 @@ class LeadHunter:
                             else:
                                 extracted["source_url"] = url
                                 extracted["source"] = f"Universal ({prompt_type})"
+                                extracted["date_added"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 self.gsheets.save_lead(extracted, query=url, source="universal")
                                 results.append(extracted)
                             
@@ -1626,6 +1634,7 @@ class LeadHunter:
                     if job_data:
                         job_data["source"] = "Naukri Intelligence"
                         job_data["source_url"] = job_url
+                        job_data["date_added"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         self.gsheets.save_lead(job_data, query=search_url, source="naukri")
                         results.append(job_data)
                         name = job_data.get('company_name') or job_data.get('Company Name') or "Unknown"
