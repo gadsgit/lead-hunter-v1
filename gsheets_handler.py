@@ -257,6 +257,25 @@ class GSheetsHandler:
                 ]
 
             self.safe_append(sheet, row)
+            
+            # --- SECONDARY BACKUP: Master Archive ---
+            try:
+                master_sheet = self.get_or_create_worksheet("MASTER_ARCHIVE", source if source != "linkedin" else "google")
+                self.sync_headers(master_sheet)
+                
+                # If it's a LinkedIn lead, we need to map it to the master headers
+                if source == "linkedin":
+                    # Map limited LinkedIn data to full schema
+                    master_row = [
+                        query, data.get('name', 'N/A'), data.get('url', 'N/A'), "N/A", "N/A", data.get('url', 'N/A'),
+                        "N/A", "N/A", "N/A", data.get('score', 0), data.get('decision', 'N/A'), data.get('summary', 'N/A')
+                    ] + ["N/A"] * 10 + [data.get('icebreaker', 'N/A'), "LinkedIn Master", data.get('date_added', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))]
+                    self.safe_append(master_sheet, master_row)
+                else:
+                    self.safe_append(master_sheet, row)
+            except Exception as e_master:
+                print(f"⚠️ Master Archive Backup failed: {e_master}")
+
             print(f"✅ Lead saved to {target_sheet_name}: {data.get('name', 'Lead')}")
             return True
         except Exception as e:

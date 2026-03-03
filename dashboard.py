@@ -482,9 +482,9 @@ with tab_plan:
             if mode == "LinkedIn X-Ray (Direct)":
                 with st.expander("🛠️ Universal Nuclear Launchpad", expanded=True):
                     c_loc, c_role, c_niche = st.columns(3)
-                    loc = c_loc.text_input("City/Location", "Dubai", key="nuclear_loc_in")
+                    loc = c_loc.text_input("City/Location", "", key="nuclear_loc_in", placeholder="Dubai")
                     role = c_role.selectbox("Target Role", ["Any", "CEO", "Founder", "Owner", "Director", "Managing Director"], key="nuclear_role_in")
-                    niche = c_niche.text_input("Niche/Industry", "Real Estate", key="nuclear_niche_in")
+                    niche = c_niche.text_input("Niche/Industry", "", key="nuclear_niche_in", placeholder="Real Estate")
                     
                     # Intelligence Feedback
                     sub = get_country_subdomain(loc)
@@ -495,8 +495,8 @@ with tab_plan:
                     # Reactive Construction
                     nuclear_dork = build_nuclear_string(role, loc, niche)
                     
-                    # Render widget with the NUCLEAR query as the value - Directly updates target_query
-                    st.text_area("Final Search String (Mission Keyword)", value=nuclear_dork, key="target_query", height=100)
+                    # Render widget with the NUCLEAR query as the value - Unique key to avoid collision
+                    st.text_area("Final Search String (Mission Keyword)", value=nuclear_dork, key="target_query_xray", height=100)
                     
                     # Manual X-Ray Fallback & Troubleshooting
                     st.divider()
@@ -1077,7 +1077,12 @@ if st.session_state.is_running:
             batch_cycles = st.session_state.get('batch_cycles', 1)
             
             for cycle in range(batch_cycles):
-                current_query = st.session_state.target_query
+                # Pick the correct query based on the active mode
+                if mode == "LinkedIn X-Ray (Direct)":
+                    current_query = st.session_state.get('target_query_xray', st.session_state.target_query)
+                else:
+                    current_query = st.session_state.target_query
+                
                 if st.session_state.get('search_booster', False):
                     # Simple booster logic
                     current_query = generate_dynamic_queries(current_query)
