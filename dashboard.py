@@ -215,59 +215,120 @@ def generate_smart_pitch(row):
     return f"Hi {name}, I saw your profile and noticed some major growth opportunities for your business. I'd love to send you a quick 2-minute audit. Interested?"
 
 # --- go.php WHATSAPP OUTREACH TOOL ---
-# Keys must match the $destinations array in iadsclick.com/go.php
-GO_PHP_TARGETS = {
-    "🦷 Dental / Medical"     : "dental",
-    "👨‍👩‍👧 Parents (GYC 10th)"  : "parents",
-    "📚 Board Prep 8-10"      : "parents_board",
-    "🏫 Delhi 11th-12th"      : "parents_delhi",
-    "🤖 AI Course"            : "course_ai",
-    "📣 Digital Marketing"    : "course_dm",
-    "🏡 Real Estate (Noida)"  : "re_noida",
-    "🛣️ Real Estate (Yamuna)" : "re_yamuna",
-    "🤖 AI Agent"             : "ai_agent",
-    "💼 AI Portfolio"         : "ai_portfolio",
-    "📊 Server-Side Analytics": "analytics",
-    "🌐 DM India"             : "dm_india",
-    "🔍 SEO India"            : "seo_india",
-    "🇺🇸 SEO USA"             : "seo_usa",
-    "📞 Contact Page"         : "contact",
+MASTER_MAP = {
+    "dental": {
+        "url_key": "dental",
+        "benefit": "patient acquisition signals and clinic growth",
+        "hook": "I noticed your clinic's digital footprint and have a specific signal-recovery audit for you.",
+        "media_path": "E:/iadsclick-brain/media/dental_audit.png"
+    },
+    "parents": {
+        "url_key": "parents",
+        "benefit": "10th-grade board exam result improvement",
+        "hook": "I'm reaching out regarding expert coaching in GYC to help your child excel in the 2026 boards.",
+        "media_path": "E:/iadsclick-brain/media/gyc_results.png"
+    },
+    "re_noida": {
+        "url_key": "re_noida",
+        "benefit": "high-intent lead generation for Noida sectors",
+        "hook": "I analyzed your property listings and found a way to automate your lead-gen specifically for Greater Noida."
+    },
+    "re_yamuna": {
+        "url_key": "re_yamuna",
+        "benefit": "Yamuna Expressway property investment tracking",
+        "hook": "Regarding your listings near the Expressway—I've built a custom AI audit for property movement in that zone."
+    },
+    "re_uae": {
+        "url_key": "re_uae",
+        "benefit": "International property exposure and UAE buyer signals",
+        "hook": "International property exposure and UAE buyer signals."
+    },
+    "course_ai": {
+        "url_key": "course_ai",
+        "benefit": "scaling operations with Agentic AI",
+        "hook": "I saw your interest in tech scaling. Here is how our AI course can automate your specific workflow."
+    },
+    "course_dm": {
+        "url_key": "course_dm",
+        "benefit": "career growth with digital marketing",
+        "hook": "Digital marketing skills that pay for themselves in 30 days:"
+    },
+    "analytics": {
+        "url_key": "analytics",
+        "benefit": "Server-Side Tracking and GTM Signal Recovery",
+        "hook": "Your tracking setup has some data gaps. I've prepared a brief on how to fix your attribution 100%."
+    },
+    "ai_agent": {
+        "url_key": "ai_agent",
+        "benefit": "autonomous business agents for lead nurturing",
+        "hook": "I've developed an AI agent that can handle your lead responses 24/7. Check the demo here:"
+    },
+    "ai_portfolio": {
+        "url_key": "ai_portfolio",
+        "benefit": "AI lead-gen results for similar businesses",
+        "hook": "Check out these AI lead-gen results we've delivered for similar businesses:"
+    },
+    "seo_india": {
+        "url_key": "seo_india",
+        "benefit": "organic visibility in the Indian market",
+        "hook": "Your SEO rankings for key Indian search terms have room for 3x growth. See the keyword gaps here:"
+    },
+    "seo_usa": {
+        "url_key": "seo_usa",
+        "benefit": "US-market expansion and global SEO",
+        "hook": "I noticed you're targeting US clients. Here is a strategy to lower your CPC and increase organic reach."
+    },
+    "local_seo": {
+        "url_key": "local_seo",
+        "benefit": "Dominating local search in Noida and Dankaur regions",
+        "hook": "Dominating local search in Noida and Dankaur regions."
+    },
+    "meta_ads": {
+        "url_key": "meta_ads",
+        "benefit": "High-speed lead generation through optimized Meta/FB funnels",
+        "hook": "High-speed lead generation through optimized Meta/FB funnels."
+    },
+    "ppc_audit": {
+        "url_key": "ppc_audit",
+        "benefit": "Stopping budget leaks and fixing tracking syntax errors",
+        "hook": "Stopping budget leaks and fixing tracking syntax errors."
+    },
+    "contact": {
+        "url_key": "contact",
+        "benefit": "strategy call",
+        "hook": "I'd love to schedule a quick 15-minute strategy call with you:"
+    },
+    "default": {
+        "url_key": "default",
+        "benefit": "digital growth and ROI optimization",
+        "hook": "I was analyzing your business profile and noticed a few major growth opportunities for 2026."
+    }
 }
 
-GO_PHP_HOOKS = {
-    "dental"       : "I've analyzed your clinic's digital signals and prepared a quick growth audit:",
-    "parents"      : "Regarding expert 10th-grade coaching in GYC — your child deserves the best:",
-    "parents_board": "Regarding Board Prep for Class 8-10 — prepare smarter, not harder:",
-    "parents_delhi": "Regarding expert 11th-12th coaching in Delhi — securing top scores starts here:",
-    "course_ai"    : "AI is transforming every industry — here's your head start:",
-    "course_dm"    : "Digital marketing skills that pay for themselves in 30 days:",
-    "re_noida"     : "I noticed your Greater Noida listings. Here is an AI lead-gen strategy for you:",
-    "re_yamuna"    : "I noticed your Yamuna Expressway listings. Here is how AI can fill your pipeline:",
-    "ai_agent"     : "An AI Business Agent could automate your follow-ups 24/7 — see how:",
-    "ai_portfolio" : "Check out these AI lead-gen results we've delivered for similar businesses:",
-    "analytics"    : "I've prepared your Server-Side Tracking & Signal Recovery brief:",
-    "dm_india"     : "I noticed some major growth gaps in your Indian market digital presence:",
-    "seo_india"    : "I noticed some SEO opportunities that your competitors are already using:",
-    "seo_usa"      : "Your US market SEO has untapped potential — here's the gap analysis:",
-    "contact"      : "I'd love to schedule a quick 15-minute strategy call with you:",
-}
-
-def generate_outreach_tool(lead_name: str, niche_key: str, manual_url: str = None) -> dict:
+def generate_outreach_tool(lead_name: str, niche_key: str, manual_url: str = None, location: str = "global") -> dict:
     """
-    Generates a branded go.php WhatsApp payload for a lead.
-    niche_key must match a key in GO_PHP_TARGETS / go.php $destinations.
-    If manual_url is provided it is used as the link instead of go.php.
-    Returns dict with: link (wa.me URL), raw_message, tracking_id, short_link.
+    Generates a branded go.php WhatsApp payload for a lead based on MASTER_MAP.
     """
     import urllib.parse as _up
     clean_name = _up.quote(lead_name.replace(" ", "_"))
+    clean_loc = _up.quote(location.lower())
+
+    config = MASTER_MAP.get(niche_key, MASTER_MAP["default"])
 
     if manual_url and manual_url.strip():
         short_link = manual_url.strip()
     else:
-        short_link = f"https://iadsclick.com/go.php?to={niche_key}&n={clean_name}"
+        short_link = f"https://iadsclick.com/go.php?to={config['url_key']}&loc={clean_loc}&n={clean_name}"
 
-    hook = GO_PHP_HOOKS.get(niche_key, "I saw your profile and found some major growth opportunities.")
+    hook = config['hook']
+    if niche_key == "parents":
+        geo_hooks = {
+            "gyc": "Are you looking for expert 10th-grade coaching right here in Gaur Yamuna City?",
+            "delhi": "We are helping students across Delhi master their Board exams with 1:1 sessions.",
+            "global": "I'm reaching out regarding expert coaching in GYC to help your child excel in the 2026 boards."
+        }
+        hook = geo_hooks.get(location.lower(), geo_hooks["global"])
+
     full_msg = f"Hi {lead_name}, {hook}\n\n{short_link}"
     wa_link  = f"https://wa.me/?text={_up.quote(full_msg)}"
 
@@ -275,7 +336,8 @@ def generate_outreach_tool(lead_name: str, niche_key: str, manual_url: str = Non
         "link"       : wa_link,
         "raw_message": full_msg,
         "short_link" : short_link,
-        "tracking_id": f"{niche_key}_{lead_name.replace(' ', '_')}",
+        "tracking_id": f"{config['url_key']}_{lead_name.replace(' ', '_')}",
+        "media_path" : config.get("media_path", "")
     }
 
 # --- GLOBAL CALLBACKS ---
@@ -369,6 +431,8 @@ if 'manual_sent_log' not in st.session_state:
     st.session_state.manual_sent_log = pd.DataFrame(columns=['Name', 'Phone', 'Industry', 'Timestamp'])
 
 # --- GLOBAL CRM STATE ---
+if 'discovery_log' not in st.session_state:
+    st.session_state.discovery_log = []
 if 'global_db' not in st.session_state:
     st.session_state.global_db = {} # Format: {'Dubai': [leads...], 'London': [...]}
 if 'city_map' not in st.session_state:
@@ -377,7 +441,7 @@ if 'city_map' not in st.session_state:
 # --- 2. SIDEBAR - WORKSPACE SELECTION ---
 st.sidebar.title("🚀 Workspace Control")
 app_mode = st.sidebar.selectbox("Choose Hunter Mode", 
-    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)", "🚀 Campaign Manager", "📊 Success Tracker", "🤳 Manual Outreach"],
+    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)", "🚀 Campaign Manager", "📊 Success Tracker", "🤳 Manual Outreach", "🤖 AI Strategy Monitor"],
     key="app_mode_selector")
 
 # Lazy load app mode into session state
@@ -889,6 +953,27 @@ def send_whatsapp(phone, message):
 
                 st.subheader(f"Active Queue ({len(active_df)})")
                 
+                # --- AI CATEGORIZER --- 
+                if st.button("🤖 Auto-Detect Niche for Active Queue"):
+                    import google.generativeai as genai
+                    import json
+                    
+                    try:
+                        valid_keys = list(MASTER_MAP.keys())
+                        for row_idx in active_df.index:
+                            lead_data = str(active_df.loc[row_idx].to_dict())
+                            prompt = f"Analyze this lead: {lead_data}\nPick the BEST matching category from this list: {valid_keys}\nIf it's a school/parent/student, pick 'parents'.\nIf it's a doctor/clinic, pick 'dental'.\nIf it's property/real estate in Noida, pick 're_noida'.\nReturn ONLY the category name."
+                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            response = model.generate_content(prompt)
+                            category = response.text.strip().lower()
+                            if category in valid_keys:
+                                st.session_state.manual_crm_data.loc[row_idx, 'Niche'] = category
+                                st.session_state.manual_crm_data.loc[row_idx, 'Status'] = "AI_CATEGORIZED"
+                        st.success("✅ Categorization Complete!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Generative AI Error: {e} - Ensure GOOGLE_API_KEY is set in .env")
+                
                 if active_df.empty:
                     st.info("Queue clear! Reach out to more leads or reset progress Below.")
                     if st.button("Reset Entire CRM Progress", type="primary"):
@@ -937,20 +1022,24 @@ def send_whatsapp(phone, message):
 
                             # --- go.php NICHE ROUTER + SMART PITCH ---
                             # Auto-detect niche from lead's industry column
-                            _auto_niche_label = "🦷 Dental / Medical"  # default
-                            for _lbl, _key in GO_PHP_TARGETS.items():
-                                if _key in le_ind.lower() or le_ind.lower() in _lbl.lower():
-                                    _auto_niche_label = _lbl
+                            _auto_niche_key = "dental"  # default
+                            for _key in MASTER_MAP.keys():
+                                if _key in le_ind.lower() or le_ind.lower() in _key:
+                                    _auto_niche_key = _key
                                     break
+                                    
+                            # AI Categorized niche if present:
+                            if "Niche" in row and pd.notna(row["Niche"]):
+                                if row["Niche"] in MASTER_MAP:
+                                    _auto_niche_key = row["Niche"]
 
-                            selected_niche_label = c_card_msg.selectbox(
+                            selected_niche_key = c_card_msg.selectbox(
                                 "📱 go.php Target",
-                                options=list(GO_PHP_TARGETS.keys()),
-                                index=list(GO_PHP_TARGETS.keys()).index(_auto_niche_label),
+                                options=list(MASTER_MAP.keys()),
+                                index=list(MASTER_MAP.keys()).index(_auto_niche_key),
                                 key=f"crm_niche_{idx}",
                                 help="Maps to iadsclick.com/go.php?to=..."
                             )
-                            selected_niche_key = GO_PHP_TARGETS[selected_niche_label]
 
                             manual_override_url = c_card_msg.text_input(
                                 "🔗 Manual Override URL (optional)",
@@ -959,8 +1048,11 @@ def send_whatsapp(phone, message):
                                 key=f"crm_manual_url_{idx}"
                             )
 
-                            # Generate branded payload
-                            outreach = generate_outreach_tool(le_name, selected_niche_key, manual_override_url)
+                            # Generate branded payload with Location Priority
+                            le_loc = str(row.get("City", row.get("Location", "global"))).lower()
+                            if le_loc in ["nan", "n/a", ""]: le_loc = "global"
+                            
+                            outreach = generate_outreach_tool(le_name, selected_niche_key, manual_override_url, le_loc)
                             smart_pitch = outreach["raw_message"]
 
                             custom_note_final = c_card_msg.text_area(
@@ -986,6 +1078,10 @@ def send_whatsapp(phone, message):
                                 c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">📲 Open WA</button></a>', unsafe_allow_html=True)
                             else:
                                 c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #128C7E; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">📤 WA Compose</button></a>', unsafe_allow_html=True)
+                            
+                            # Add Copy Image link
+                            if outreach.get("media_path"):
+                                c_card_act.markdown(f'<a href="file://{outreach["media_path"]}" target="_blank"><button style="background-color: #f1c40f; color: black; border: none; padding: 10px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 5px;">🖼️ View/Copy Image</button></a>', unsafe_allow_html=True)
                             
                             if c_card_act.button("✅ Done", key=f"crm_mark_done_{idx}", use_container_width=True):
                                 st.session_state.manual_sent_indices.add(idx)
@@ -1039,6 +1135,47 @@ def send_whatsapp(phone, message):
                             mime="application/vnd.ms-excel",
                             use_container_width=True
                         )
+
+        elif st.session_state.app_mode == "🤖 AI Strategy Monitor":
+            st.title("🤖 AI Strategy Monitor")
+            # Render the customized CSS styling
+            st.markdown('''
+            <style>
+                .monitoring-tab { background: #1a1a1a; color: #00ff41; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; margin-bottom: 20px;}
+                .tag { background: #333; color: #fff; padding: 2px 6px; border-radius: 4px; }
+                .status-ok { color: #00ff41; font-weight: bold; }
+                .monitor-table { width: 100%; text-align: left; }
+                .monitor-table th { padding-bottom: 10px; border-bottom: 1px solid #333; }
+                .monitor-table td { padding: 10px 0; }
+            </style>
+            ''', unsafe_allow_html=True)
+            
+            html_rows = ""
+            if not st.session_state.discovery_log:
+                html_rows = "<tr><td colspan='4'>Awaiting AI Discoveries...</td></tr>"
+            else:
+                for entry in st.session_state.discovery_log:
+                    html_rows += f"<tr><td>{entry['time']}</td><td><span class='tag'>{entry['key']}</span></td><td>{entry['destination']}</td><td><span class='status-ok'>{entry['status']}</span></td></tr>"
+
+            ui_html = f'''
+            <div class="monitoring-tab">
+                <h3>AI Sync Monitor</h3>
+                <table class="monitor-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Niche Detected</th>
+                            <th>Target URL</th>
+                            <th>Sync Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitor-body">
+                        {html_rows}
+                    </tbody>
+                </table>
+            </div>
+            '''
+            st.markdown(ui_html, unsafe_allow_html=True)
 
     with col_settings:
         st.subheader("⚙️ Parameters")
