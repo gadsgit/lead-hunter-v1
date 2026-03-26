@@ -214,6 +214,70 @@ def generate_smart_pitch(row):
 
     return f"Hi {name}, I saw your profile and noticed some major growth opportunities for your business. I'd love to send you a quick 2-minute audit. Interested?"
 
+# --- go.php WHATSAPP OUTREACH TOOL ---
+# Keys must match the $destinations array in iadsclick.com/go.php
+GO_PHP_TARGETS = {
+    "🦷 Dental / Medical"     : "dental",
+    "👨‍👩‍👧 Parents (GYC 10th)"  : "parents",
+    "📚 Board Prep 8-10"      : "parents_board",
+    "🏫 Delhi 11th-12th"      : "parents_delhi",
+    "🤖 AI Course"            : "course_ai",
+    "📣 Digital Marketing"    : "course_dm",
+    "🏡 Real Estate (Noida)"  : "re_noida",
+    "🛣️ Real Estate (Yamuna)" : "re_yamuna",
+    "🤖 AI Agent"             : "ai_agent",
+    "💼 AI Portfolio"         : "ai_portfolio",
+    "📊 Server-Side Analytics": "analytics",
+    "🌐 DM India"             : "dm_india",
+    "🔍 SEO India"            : "seo_india",
+    "🇺🇸 SEO USA"             : "seo_usa",
+    "📞 Contact Page"         : "contact",
+}
+
+GO_PHP_HOOKS = {
+    "dental"       : "I've analyzed your clinic's digital signals and prepared a quick growth audit:",
+    "parents"      : "Regarding expert 10th-grade coaching in GYC — your child deserves the best:",
+    "parents_board": "Regarding Board Prep for Class 8-10 — prepare smarter, not harder:",
+    "parents_delhi": "Regarding expert 11th-12th coaching in Delhi — securing top scores starts here:",
+    "course_ai"    : "AI is transforming every industry — here's your head start:",
+    "course_dm"    : "Digital marketing skills that pay for themselves in 30 days:",
+    "re_noida"     : "I noticed your Greater Noida listings. Here is an AI lead-gen strategy for you:",
+    "re_yamuna"    : "I noticed your Yamuna Expressway listings. Here is how AI can fill your pipeline:",
+    "ai_agent"     : "An AI Business Agent could automate your follow-ups 24/7 — see how:",
+    "ai_portfolio" : "Check out these AI lead-gen results we've delivered for similar businesses:",
+    "analytics"    : "I've prepared your Server-Side Tracking & Signal Recovery brief:",
+    "dm_india"     : "I noticed some major growth gaps in your Indian market digital presence:",
+    "seo_india"    : "I noticed some SEO opportunities that your competitors are already using:",
+    "seo_usa"      : "Your US market SEO has untapped potential — here's the gap analysis:",
+    "contact"      : "I'd love to schedule a quick 15-minute strategy call with you:",
+}
+
+def generate_outreach_tool(lead_name: str, niche_key: str, manual_url: str = None) -> dict:
+    """
+    Generates a branded go.php WhatsApp payload for a lead.
+    niche_key must match a key in GO_PHP_TARGETS / go.php $destinations.
+    If manual_url is provided it is used as the link instead of go.php.
+    Returns dict with: link (wa.me URL), raw_message, tracking_id, short_link.
+    """
+    import urllib.parse as _up
+    clean_name = _up.quote(lead_name.replace(" ", "_"))
+
+    if manual_url and manual_url.strip():
+        short_link = manual_url.strip()
+    else:
+        short_link = f"https://iadsclick.com/go.php?to={niche_key}&n={clean_name}"
+
+    hook = GO_PHP_HOOKS.get(niche_key, "I saw your profile and found some major growth opportunities.")
+    full_msg = f"Hi {lead_name}, {hook}\n\n{short_link}"
+    wa_link  = f"https://wa.me/?text={_up.quote(full_msg)}"
+
+    return {
+        "link"       : wa_link,
+        "raw_message": full_msg,
+        "short_link" : short_link,
+        "tracking_id": f"{niche_key}_{lead_name.replace(' ', '_')}",
+    }
+
 # --- GLOBAL CALLBACKS ---
 def apply_preset(query=None, mode=None, signal=None):
     """Programmatically sets search parameters without widget conflicts."""
@@ -871,24 +935,57 @@ def send_whatsapp(phone, message):
                             
                             c_card_info.caption(f"📌 {le_ind}")
 
-                            # --- SMART PITCH with TRACKING ---
-                            smart_pitch = generate_smart_pitch(row)
-                            # Add tracking link snippet
-                            app_url = os.getenv("RENDER_EXTERNAL_URL", "https://lead-hunter.onrender.com")
-                            tracking_url = f"{app_url}/?tracking_id={track_id}"
-                            smart_pitch += f"\n\nView your audit here: {tracking_url}"
-                            
-                            custom_note_final = c_card_msg.text_area("Live Customization", value=smart_pitch, height=130, key=f"crm_note_edit_{idx}")
-                            
-                            # WhatsApp API Generation
+                            # --- go.php NICHE ROUTER + SMART PITCH ---
+                            # Auto-detect niche from lead's industry column
+                            _auto_niche_label = "🦷 Dental / Medical"  # default
+                            for _lbl, _key in GO_PHP_TARGETS.items():
+                                if _key in le_ind.lower() or le_ind.lower() in _lbl.lower():
+                                    _auto_niche_label = _lbl
+                                    break
+
+                            selected_niche_label = c_card_msg.selectbox(
+                                "📱 go.php Target",
+                                options=list(GO_PHP_TARGETS.keys()),
+                                index=list(GO_PHP_TARGETS.keys()).index(_auto_niche_label),
+                                key=f"crm_niche_{idx}",
+                                help="Maps to iadsclick.com/go.php?to=..."
+                            )
+                            selected_niche_key = GO_PHP_TARGETS[selected_niche_label]
+
+                            manual_override_url = c_card_msg.text_input(
+                                "🔗 Manual Override URL (optional)",
+                                value="",
+                                placeholder="Paste any URL to override go.php",
+                                key=f"crm_manual_url_{idx}"
+                            )
+
+                            # Generate branded payload
+                            outreach = generate_outreach_tool(le_name, selected_niche_key, manual_override_url)
+                            smart_pitch = outreach["raw_message"]
+
+                            custom_note_final = c_card_msg.text_area(
+                                "✏️ Live Customization",
+                                value=smart_pitch,
+                                height=130,
+                                key=f"crm_note_edit_{idx}"
+                            )
+
+                            # Show the short link for easy copy
+                            c_card_msg.caption(f"🔗 `{outreach['short_link']}`")
+
+                            # WhatsApp button — use phone number if available, else generic wa.me link
                             le_clean_p = re.sub(r'[^0-9]', '', le_phone)
                             if len(le_clean_p) == 10: le_clean_p = "91" + le_clean_p
-                            wa_url_final = f"https://wa.me/{le_clean_p}?text={quote(custom_note_final)}"
-                            
+
                             if has_valid_phone(le_phone):
-                                c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">Open WA</button></a>', unsafe_allow_html=True)
+                                wa_url_final = f"https://wa.me/{le_clean_p}?text={quote(custom_note_final)}"
                             else:
-                                c_card_act.markdown(f'<br><button style="background-color: #555; color: white; border: none; padding: 14px; border-radius: 8px; cursor: not-allowed; width: 100%; font-weight: bold;" disabled>No Phone</button>', unsafe_allow_html=True)
+                                wa_url_final = outreach["link"]  # generic wa.me link (opens WA without number)
+
+                            if has_valid_phone(le_phone):
+                                c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">📲 Open WA</button></a>', unsafe_allow_html=True)
+                            else:
+                                c_card_act.markdown(f'<br><a href="{wa_url_final}" target="_blank"><button style="background-color: #128C7E; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold;">📤 WA Compose</button></a>', unsafe_allow_html=True)
                             
                             if c_card_act.button("✅ Done", key=f"crm_mark_done_{idx}", use_container_width=True):
                                 st.session_state.manual_sent_indices.add(idx)

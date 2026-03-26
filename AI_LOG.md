@@ -48,4 +48,16 @@ This file records the key prompts, summaries of requests, and the corresponding 
 - **Key Suggestion:** AI-powered icebreakers significantly increase conversion compared to static templates.
 
 ---
+## 📅 Session: 2026-03-26
+
+### 📝 Prompt: go.php WhatsApp Link Router + GA4 Tracking
+- **User Request:** Build a `go.php` central redirect script on `iadsclick.com` so all WhatsApp outreach links are short, branded, and trackable. Added two new parent targets (`parents_board`, `parents_delhi`) for leads outside GYC using `board-prep-8-10.html` and `delhi-11-12.html`.
+- **AI Output:**
+    - Created `E:\iAds2026-Development\go.php` with 15 destination targets and full GA4 UTM parameters (`utm_medium=whatsapp`, `utm_campaign=lead_hunt`, `utm_content`, `lead_id`).
+    - Created `E:\iAds2026-Development\FEATURE_LOG.md` as the canonical feature changelog for the iAdsClick ecosystem.
+    - Provided Python `generate_whatsapp_payload()` function with auto-niche and manual URL override modes.
+- **Key Suggestion:** Register `lead_id` and `utm_content` as Custom Dimensions in GA4 so Real-Time reports show *exactly which lead* clicked your WhatsApp link. This turns every outreach into a measurable GA4 event.
+- **Upload Required:** Upload `go.php` to the root of `iadsclick.com` via FTP/cPanel.
+
+---
 *Next entry starts here...*
