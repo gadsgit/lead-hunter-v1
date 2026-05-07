@@ -60,6 +60,7 @@ In Render Dashboard, add these environment variables:
 | `GEMINI_API_KEY` | `your_gemini_api_key_here` | Get from https://aistudio.google.com/ |
 | `GOOGLE_SHEET_ID` | `1uC9xvM6HgoDy7-zHZwDh9Zrcz-W1Ptyak0h3SZjjW5s` | Already configured |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | `google-credentials.json` | Already set in render.yaml |
+| `ADMIN_PASSWORD` | `your_secure_password_here` | Required for Dashboard Access |
 
 ### 3.4 Upload Google Credentials
 

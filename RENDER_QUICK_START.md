@@ -36,6 +36,7 @@
 |-----|-------|----------------|
 | `GEMINI_API_KEY` | Your actual API key | https://aistudio.google.com/app/apikey |
 | `GOOGLE_SHEET_ID` | `1uC9xvM6HgoDy7-zHZwDh9Zrcz-W1Ptyak0h3SZjjW5s` | Already configured ✅ |
+| `ADMIN_PASSWORD` | Your secure password | e.g. `your-secure-password` |
 
 3. Click **"Save Changes"**
 

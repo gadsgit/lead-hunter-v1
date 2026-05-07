@@ -191,6 +191,38 @@ def sync_to_cloud():
     else:
         st.error("Failed to connect to Google Sheets. Check your credentials.")
 
+# --- AUTHENTICATION SYSTEM ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if st.session_state["password_correct"]:
+        return True
+
+    # Login UI
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.write("")
+        st.write("")
+        st.write("")
+        st.markdown("<h1 style='text-align: center; color: #00FF00;'>🏹 Lead Hunter</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #ffffff;'>Admin Access Required</h3>", unsafe_allow_html=True)
+        
+        with st.container(border=True):
+            password = st.text_input("Enter Access Key", type="password", placeholder="••••••••")
+            if st.button("Unlock Mission Control", use_container_width=True, type="primary"):
+                target_password = os.getenv("ADMIN_PASSWORD", "admin123")
+                if password == target_password:
+                    st.session_state["password_correct"] = True
+                    st.rerun()
+                else:
+                    st.error("🚫 Access Denied: Incorrect Password")
+            
+            st.info("Note: This dashboard is for authorized personnel only.")
+    
+    return False
+
 # --- SMART PITCH GENERATOR ---
 
 def generate_smart_pitch(row):
@@ -348,6 +380,10 @@ def apply_preset(query=None, mode=None, signal=None):
     if signal is not None: st.session_state.signal_mode = signal
 
 st.set_page_config(page_title="Hunter Intelligence Console", layout="wide", page_icon="🏹")
+
+# --- 0. AUTHENTICATION GATE ---
+if not check_password():
+    st.stop()
 
 # --- 0. INTELLIGENCE TRACKER (REDIRECTOR) ---
 # This catches leads clicking your tracking links and logs the 'Open'.
