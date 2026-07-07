@@ -603,11 +603,20 @@ def generate_dynamic_queries(mission_topic, location=""):
 
 # Top Intelligence Bar
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("System Status", "HUNTING" if st.session_state.is_running else "STANDBY")
-c2.metric("Leads Found", st.session_state.stats['found'])
-c3.metric("Inserted", st.session_state.stats['inserted'])
-c4.metric("Duplicates", st.session_state.stats['duplicates'])
-c5.metric("Blocker Status", st.session_state.get('blocker_status', '🟢 Standby'))
+metric_status = c1.empty()
+metric_found = c2.empty()
+metric_inserted = c3.empty()
+metric_duplicates = c4.empty()
+metric_blocker = c5.empty()
+
+def render_metrics():
+    metric_status.metric("System Status", "HUNTING" if st.session_state.get('is_running', False) else "STANDBY")
+    metric_found.metric("Leads Found", st.session_state.stats['found'])
+    metric_inserted.metric("Inserted", st.session_state.stats['inserted'])
+    metric_duplicates.metric("Duplicates", st.session_state.stats['duplicates'])
+    metric_blocker.metric("Blocker Status", st.session_state.get('blocker_status', '🟢 Standby'))
+
+render_metrics()
 ram = get_ram_status()
 st.sidebar.metric("RAM Health", f"{ram:.0f} MB", "Safe" if ram < 450 else "High", delta_color="normal" if ram < 450 else "inverse")
 st.sidebar.info(f"Current Workspace: **{st.session_state.app_mode}**")
@@ -1360,6 +1369,7 @@ if st.session_state.is_running:
         if "Duplicate" in msg or "duplicate" in msg or "⏭️ Skipped" in msg:
             st.session_state.stats['duplicates'] += 1
             
+        render_metrics()
         log_placeholder.code("\n".join(st.session_state.logs[-15:]), language="text")
 
     try:
@@ -1461,13 +1471,15 @@ if st.session_state.is_running:
         save_to_global_db(all_leads, cur_city)
         
         st.session_state.is_running = False
+        render_metrics()
         st.success(f"Mission Complete! {len(all_leads)} leads added to {cur_city} database.")
         st.balloons()
-        st.rerun()
+        # st.rerun() removed to prevent wiping balloons/success message immediately
         
     except Exception as e:
         import traceback
         update_ui(f"❌ Critical Error: {e}")
         print(traceback.format_exc())
         st.session_state.is_running = False
+        render_metrics()
         st.error(f"Error: {e}")

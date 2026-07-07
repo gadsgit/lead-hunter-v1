@@ -409,9 +409,6 @@ class LeadHunter:
         
         processed_names = set()
         for item in items:
-            if len(results) >= self.limit:
-                break
-                
             try:
                 name = await item.get_attribute('aria-label')
                 if not name:
@@ -431,7 +428,7 @@ class LeadHunter:
                 
                 # Locate the parent article to find the website button
                 article = await page.evaluate_handle('el => el.closest(\'div[role="article"]\')', item)
-                
+                txt = ""
                 if article:
                     # Analysis for Opportunities
                     try:
@@ -460,7 +457,7 @@ class LeadHunter:
                 
                 print(f"  + Scraped: {name} ({website}) | Revs: {reviews}")
                 if update_callback: update_callback(f"📍 Discovered: {name}")
-                results.append({"name": name, "website": website, "reviews": reviews, "is_closed": is_closed})
+                results.append({"name": name, "website": website, "reviews": reviews, "is_closed": is_closed, "raw_maps_text": txt})
             except Exception as e:
                 print(f"Error extracting item: {e}")
         
@@ -469,12 +466,12 @@ class LeadHunter:
             if update_callback: update_callback("⚠️ Using fallback extraction...")
             # If still nothing, one final attempt looking for any visible text that looks like a business name
             potential_names = await page.query_selector_all('.fontHeadlineSmall')
-            for el in potential_names[:self.limit]:
+            for el in potential_names:
                 name = await el.inner_text()
                 if name:
                     name = name.strip()
                     if update_callback: update_callback(f"📍 Discovered: {name}")
-                    results.append({"name": name.strip(), "website": "N/A", "reviews": 0, "is_closed": False})
+                    results.append({"name": name.strip(), "website": "N/A", "reviews": 0, "is_closed": False, "raw_maps_text": ""})
 
         return results
 
@@ -652,7 +649,8 @@ class LeadHunter:
             "score": <integer>,
             "decision": "<Qualified, Not Qualified, or Neutral>",
             "inferred_age": "<string>",
-            "reasoning": "<short summary for the summary column>"
+            "reasoning": "<short summary for the summary column>",
+            "address": "<extracted physical address if present, or N/A>"
         }}
         """
     
@@ -674,11 +672,11 @@ class LeadHunter:
                 clean_text = clean_text[start:end]
                 
             data = json.loads(clean_text)
-            return data.get("score", 0), data.get("decision", "Neutral"), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI")
+            return data.get("score", 0), data.get("decision", "Neutral"), data.get("inferred_age", "Unknown"), data.get("reasoning", "Analyzed by AI"), data.get("address", "N/A")
         except Exception as e:
             self.archive_intelligence(f"ERROR_SCORE_{lead_name}", str(e))
             print(f"AI Scoring Error: {e}")
-            return 50, "Neutral", "Unknown", "AI parsing failed, using default score"
+            return 50, "Neutral", "Unknown", "AI parsing failed, using default score", "N/A"
 
 
 
@@ -1198,8 +1196,10 @@ class LeadHunter:
                                 company["linkedin"] = found_li
                                 
                         company_data = company
+                        # Merge Maps text with Website text so AI can see the address
+                        combined_content = f"MAPS INFO: {company.get('raw_maps_text', '')}\n\nWEBSITE INFO:\n{website_content}"
                         # Truncate content specifically to save RAM
-                        company_content = self.truncate_for_ai(website_content, 5000)
+                        company_content = self.truncate_for_ai(combined_content, 5000)
                     except Exception as e:
                         print(f"Scrape error for {basic_info['name']}: {e}")
                         company_data = basic_info.copy() # Fallback to basic info
@@ -1223,11 +1223,12 @@ class LeadHunter:
                     if update_callback: update_callback(f"AI Analyzing & Saving {company_data['name']}...")
                     
                     # Safe analysis even with empty content
-                    score, decision, age, summary = await self.score_lead_ai(company_data["name"], company_content or "")
+                    score, decision, age, summary, address = await self.score_lead_ai(company_data["name"], company_content or "")
                     company_data["score"] = score
                     company_data["decision"] = decision
                     company_data["age"] = age
                     company_data["summary"] = summary
+                    company_data["address"] = address
 
                     self.gsheets.save_lead(company_data, query=target_keyword, source="google")
 
@@ -1237,6 +1238,8 @@ class LeadHunter:
                         "source": company_data.get("source", "Google Maps"),
                         "website": company_data["website"],
                         "email": company_data["email"],
+                        "phone": company_data.get("phone", "N/A"),
+                        "address": company_data.get("address", "N/A"),
                         "founder": company_data.get("founder_match", "N/A"),
                         "tech": company_data.get("tech_stack", "Unknown"),
                         "gmb": company_data.get("gmb_status", "N/A"),
@@ -1252,6 +1255,11 @@ class LeadHunter:
                 except Exception as e:
                     print(f"AI/Save Error for {company_data['name']}: {e}")
                     if update_callback: update_callback(f"Error saving {company_data['name']}")
+                    
+                # Fill-to-Target: Stop processing once we have reached the requested limit of successful inserts
+                if len(final_leads) >= self.limit:
+                    if update_callback: update_callback(f"🎯 Target reached: {self.limit} valid leads inserted.")
+                    break
 
         if update_callback: update_callback(f"Mission Complete: {target_keyword}")
         return final_leads

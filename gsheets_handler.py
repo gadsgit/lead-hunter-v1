@@ -126,7 +126,7 @@ class GSheetsHandler:
 
         try:
             expected_headers = [
-                "Keyword", "Company Name", "Website", "Emails", "Phone", "LinkedIn", 
+                "Keyword", "Company Name", "Website", "Emails", "Phone", "Address", "LinkedIn", 
                 "Instagram", "Facebook", "Tech Stack",
                 "Score", "Decision", "Summary", 
                 "GMB Status", "GMB Opp", 
@@ -234,6 +234,7 @@ class GSheetsHandler:
                     data.get('website', data.get('source_url', 'N/A')),
                     data.get('email', data.get('email_guess', 'N/A')),
                     data.get('phone', 'N/A'),
+                    data.get('address', 'N/A'),
                     data.get('linkedin', 'N/A'),
                     data.get('instagram', 'N/A'),
                     data.get('facebook', 'N/A'),
@@ -294,7 +295,7 @@ class GSheetsHandler:
                 headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source", "Date Added"]
             else:
                 headers = [
-                    "Keyword", "Name", "Website", "Emails", "Phone", "LinkedIn", 
+                    "Keyword", "Name", "Website", "Emails", "Phone", "Address", "LinkedIn", 
                     "Instagram", "Facebook", "Tech Stack",
                     "Score", "Decision", "Summary", 
                     "GMB Status", "GMB Opp", 
