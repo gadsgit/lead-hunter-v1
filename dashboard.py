@@ -1250,7 +1250,7 @@ def send_whatsapp(phone, message):
 
     with col_settings:
         st.subheader("⚙️ Parameters")
-        st.slider("Scrape Limit", 5, 50, 10, key="limit")
+        st.number_input("Scrape Limit (Target Leads)", min_value=1, max_value=1000, value=10, step=1, key="limit")
         
         if st.session_state.app_mode == "🏹 Unified Hunter":
             batch_mode = st.checkbox("🔄 Batch Mode (Multiple Cycles)", value=False)
@@ -1263,12 +1263,26 @@ def send_whatsapp(phone, message):
         armed = st.toggle("ARMED / DISARMED", value=False)
         
         if armed:
-            if st.button("🚀 LAUNCH MISSION", type="primary", use_container_width=True):
+            if st.button("🚀 LAUNCH NEW MISSION", type="primary", use_container_width=True):
                 st.session_state.is_running = True
                 st.session_state.logs = []
                 st.session_state.results = [] 
                 st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
-                st.toast("Mission Launched!", icon="🚀")
+                # Reset offset if it's a "New" mission
+                offset_key = st.session_state.target_query.lower().strip()
+                if st.session_state.search_mode == "LinkedIn X-Ray (Direct)":
+                    st.session_state.search_offsets[offset_key] = 0
+                st.toast("New Mission Launched!", icon="🚀")
+                st.rerun()
+                
+            st.divider()
+            st.caption("⏭️ **Continue Previous Search**")
+            if st.button(f"⏭️ HUNT NEXT {st.session_state.limit}", use_container_width=True):
+                st.session_state.is_running = True
+                st.session_state.logs = []
+                st.session_state.results = [] 
+                st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
+                st.toast(f"Hunting Next {st.session_state.limit} Leads!", icon="⏭️")
                 st.rerun()
         else:
             st.button("🚫 SYSTEMS DISARMED", disabled=True, use_container_width=True)

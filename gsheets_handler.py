@@ -224,7 +224,7 @@ class GSheetsHandler:
                     data.get('signal', 'N/A'),
                     data.get('icebreaker', 'N/A'),
                     data.get('source', "LinkedIn"),
-                    data.get('date_added', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    data.get('date_added', (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST"))
                 ]
             else:
                 # Full Enrichment Row for everything else
@@ -254,7 +254,7 @@ class GSheetsHandler:
                     data.get('xray_opp', 'N/A'),
                     data.get('icebreaker', 'N/A'),
                     data.get('source', app_mode),
-                    data.get('date_added', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    data.get('date_added', (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST"))
                 ]
 
             self.safe_append(sheet, row)

@@ -329,7 +329,7 @@ class LeadHunter:
             print(f"Shiksha Scrape Error: {e}")
             return None
 
-    async def scrape_google_maps(self, page, update_callback=None):
+    async def scrape_google_maps(self, page, update_callback=None, min_candidates=None):
         print(f"Searching Google Maps for: {self.keyword}")
         if update_callback: update_callback(f"Searching Google Maps for: {self.keyword}")
         maps_url = f"https://www.google.com/maps/search/{self.keyword.replace(' ', '+')}?hl=en"
@@ -386,7 +386,7 @@ class LeadHunter:
         # we have at least (limit * 2) candidates (buffer for dups)
         # or we hit the end-of-list marker / max scroll depth.
         # -------------------------------------------------------
-        target_candidates = max(self.limit * 2, 20)  # always fetch a healthy buffer
+        target_candidates = min_candidates if min_candidates else max(self.limit * 2, 20)  # caller can override for deep retries
         MAX_SCROLL_ROUNDS = 25                         # safety cap (~250 results max)
         scroll_round = 0
 
@@ -431,7 +431,7 @@ class LeadHunter:
             # Secondary selector: company names
             items = await page.query_selector_all('.qBF1Pd')
 
-        msg = f"📦 Found {len(items)} total businesses. Will insert up to {self.limit} unique leads."
+        msg = f"📦 Found {len(items)} total businesses in this scroll pass."
         print(msg)
         if update_callback: update_callback(msg)
 
@@ -1068,232 +1068,247 @@ class LeadHunter:
         existing_websites = history.get("urls", set())
         existing_names = history.get("names", set())
 
-        # Step 1: Get list of leads from Google Maps
-        if update_callback: update_callback(f"Scanning Google Maps for: {target_keyword}...")
-        
-        async with async_playwright() as p:
-            browser, page = await self.get_browser_and_page(p)
-            try:
-                # pass page object, not strings or modules
-                basic_companies = await self.scrape_google_maps(page, update_callback)
-            finally:
-                await browser.close()
+        # -------------------------------------------------------
+        # AUTO-RETRY LOOP: Keep scraping (scrolling deeper each
+        # attempt) until we have inserted exactly `limit` unique
+        # leads or Google Maps has no new results left to give.
+        # -------------------------------------------------------
+        final_leads       = []
+        all_processed     = set()   # names seen across ALL attempts (avoid re-enriching)
+        attempt           = 0
+        MAX_ATTEMPTS      = 50
 
-        # Step 2: Atomic Processing (Scrape -> Score -> Save)
-        final_leads = []
-        count = 0
-        total = len(basic_companies)
-        
-        for basic_info in basic_companies:
-            count += 1
-            website = basic_info.get("website", "N/A")
-            name = basic_info.get("name", "Unknown")
-            
-            # Smart Duplicate Check
-            is_duplicate = False
-            if website.lower() not in ["n/a", "unknown", "none", ""] and website in existing_websites:
-                is_duplicate = True
-                msg = f"Skipping {name} (Duplicate Website)"
-            elif name in existing_names:
-                is_duplicate = True
-                msg = f"Skipping {name} (Duplicate Name)"
-                
-            if is_duplicate:
-                if update_callback: update_callback(msg)
-                continue
+        while len(final_leads) < self.limit and attempt < MAX_ATTEMPTS:
+            attempt += 1
+            needed = self.limit - len(final_leads)
 
-            if update_callback: update_callback(f"Processing Lead {count}/{total}: {basic_info['name']}")
-            
-            # ATOMIC SESSION
-            company_data = None
-            company_content = None
-            
-            # --- PHASE 1: THE BROWSER (RAM HEAVY) ---
-            try:
-                # Update approximate found count
-                if progress_callback: progress_callback(count / total)
-                
-                async with async_playwright() as p:
-                    browser, page = await self.get_browser_and_page(p)
-                    
-                    try:
-                        company = basic_info.copy()
-                        
-                        # --- WEBSITE RECOVERY SWEEP ---
-                        if company.get("website") == "N/A":
-                            company["website"] = await self.recover_website(page, company["name"])
-                        
-                        # Scrape with strict timeout
-                        website_content, emails, socials, phone, tech_stack, load_time = await self.scrape_website(page, company["website"])
-                        
-                        # --- SOCIAL RECOVERY SWEEP ---
-                        if socials.get("linkedin") == "N/A":
-                            socials["linkedin"] = await self.recover_social(page, company["name"], "linkedin")
-                        if socials.get("instagram") == "N/A":
-                            socials["instagram"] = await self.recover_social(page, company["name"], "instagram")
-                        if socials.get("facebook") == "N/A":
-                            socials["facebook"] = await self.recover_social(page, company["name"], "facebook")
+            if attempt == 1:
+                if update_callback: update_callback(f"Scanning Google Maps for: {target_keyword}...")
+            else:
+                if update_callback: update_callback(
+                    f"🔄 Auto-Retry #{attempt}: {len(final_leads)}/{self.limit} inserted — need {needed} more. Scrolling deeper...")
+                await asyncio.sleep(3)   # brief cooldown between retries
 
-                        company["email"] = ", ".join(emails) if emails else "N/A"
-                        company["phone"] = phone
-                        company["tech_stack"] = tech_stack
-                        company["source"] = "Google Maps"
-                        company.update(socials)
+            # Each retry scrolls proportionally deeper to expose fresh results
+            min_cands = max(self.limit * 2 * attempt, 20)
 
-                        # ENHANCED SIGNAL & OPPORTUNITY LOGIC
-                        
-                        # 1. GMB STATUS & OPP
-                        if company.get("is_unclaimed", False):
-                            company["gmb_status"] = "🚩 Unclaimed"
-                            company["gmb_opp"] = "Pitch: Claim and Optimize GMB Profile."
-                        elif company.get("reviews", 0) < 10:
-                            company["gmb_status"] = f"⚠️ Low Reviews ({company.get('reviews')})"
-                            company["gmb_opp"] = "Pitch: Automated Review Management."
-                        else:
-                            company["gmb_status"] = "✅ Healthy"
-                            company["gmb_opp"] = "N/A"
-
-                        # 2. AD ACTIVITY & OPP
-                        if "Meta Pixel" not in tech_stack:
-                            company["ad_status"] = "📉 Not running Meta Ads"
-                            company["ad_opp"] = "Pitch: Lead Generation Automation."
-                        else:
-                            company["ad_status"] = "🚀 Active"
-                            company["ad_opp"] = "N/A"
-                            
-                        # 3. WEB STATUS & OPP
-                        if company.get("website", "N/A") == "N/A":
-                            company["web_status"] = "🚫 No Site"
-                            company["web_opp"] = "Pitch: High-Converting Landing Page Build."
-                        elif "WordPress" in tech_stack or "Basic" in tech_stack:
-                            company["web_status"] = "🕸️ Old WP / Basic"
-                            company["web_opp"] = "Pitch: Performance Marketing / CRO."
-                        else:
-                            company["web_status"] = "💎 Modern"
-                            company["web_opp"] = "N/A"
-
-                        # 4. WEB SPEED & OPP
-                        if company.get("website", "N/A") == "N/A":
-                            company["speed_status"] = "N/A (No Site)"
-                            company["speed_opp"] = "N/A"
-                        elif load_time > 5:
-                            company["speed_status"] = f"🐢 Slow ({load_time:.1f}s)"
-                            company["speed_opp"] = "Pitch: Website Optimization / Speed."
-                        else:
-                            company["speed_status"] = f"⚡ Fast ({load_time:.1f}s)"
-                            company["speed_opp"] = "N/A"
-                            
-                        # 5. X-RAY MATCH & OPP
-                        company["xray_status"] = "❓ Not Found"
-                        company["xray_opp"] = "Pitch: Direct Outreach / LinkedIn DM."
-
-                        # QUERY-BASED OVERRIDES (High-Intent)
-                        if "emergency" in target_keyword.lower():
-                            company["ad_opp"] = "Pitch: PPC / Google Ads (Urgent need)."
-                        if "new" in target_keyword.lower():
-                            company["gmb_opp"] = "Pitch: Launch Marketing / Google Business Setup."
-                        if "open now" in target_keyword.lower():
-                            company["ad_opp"] = "Pitch: Real-Time Lead Engagement / Call-Only Campaigns."
-
-                        # Track source
-                        company["source"] = "Google Maps"
-                        
-                        # X-RAY ENRICHMENT (The "Dual Scan" Feature)
-                        founder_info = "N/A"
-                        if enrich_with_xray:
-                            # If we didn't find a direct LinkedIn link, try X-Ray specifically for the Founder
-                            xray_dork = f'site:linkedin.com/in "CEO" OR "Founder" "{company["name"]}"'
-                            if update_callback: update_callback(f"   🔍 X-Raying Founder for: {company['name']}")
-                            
-                            # Reuse the existing page for X-Ray
-                            # Temporarily set limit to 1 for founder search
-                            original_limit = self.limit
-                            self.limit = 1 
-                            xray_results = await self.scrape_linkedin_profiles(page, xray_dork, update_callback=update_callback)
-                            self.limit = original_limit # Reset limit
-                            
-                            if xray_results:
-                                founder = xray_results[0] # Take top result
-                                founder_info = f"{founder['name']} ({founder['url']})"
-                                company['founder_match'] = founder_info
-                                company['xray_status'] = "👤 Found Founder"
-                                if update_callback: update_callback(f"   👤 Found: {founder['name']}")
-                            else:
-                                company['founder_match'] = "Not Found"
-                        
-                        if company.get("linkedin") == "N/A":
-                            found_li = await self.search_linkedin(page, company["name"])
-                            if found_li != "N/A":
-                                company["linkedin"] = found_li
-                                
-                        company_data = company
-                        # Merge Maps text with Website text so AI can see the address
-                        combined_content = f"MAPS INFO: {company.get('raw_maps_text', '')}\n\nWEBSITE INFO:\n{website_content}"
-                        # Truncate content specifically to save RAM
-                        company_content = self.truncate_for_ai(combined_content, 5000)
-                    except Exception as e:
-                        print(f"Scrape error for {basic_info['name']}: {e}")
-                        company_data = basic_info.copy() # Fallback to basic info
-                        company_content = ""
-                    finally:
-                         # Force close everything
-                         await browser.close()
-                         try:
-                             await p.stop()
-                         except: pass
-
-            except Exception as e:
-                print(f"Browser launch error: {e}")
-
-            # --- PHASE 2: THE CLEANUP (MEMORY FLUSH) ---
-            gc.collect()
-            
-            # --- PHASE 3: THE AI (RAM LIGHT) ---
-            if company_data:
+            async with async_playwright() as p:
+                browser, page = await self.get_browser_and_page(p)
                 try:
-                    if update_callback: update_callback(f"AI Analyzing & Saving {company_data['name']}...")
-                    
-                    # Safe analysis even with empty content
-                    score, decision, age, summary, address = await self.score_lead_ai(company_data["name"], company_content or "")
-                    company_data["score"] = score
-                    company_data["decision"] = decision
-                    company_data["age"] = age
-                    company_data["summary"] = summary
-                    company_data["address"] = address
+                    basic_companies = await self.scrape_google_maps(page, update_callback, min_candidates=min_cands)
+                finally:
+                    await browser.close()
 
-                    self.gsheets.save_lead(company_data, query=target_keyword, source="google")
+            # Only process companies we haven't seen before
+            new_companies = [c for c in basic_companies if c['name'] not in all_processed]
+            if not new_companies:
+                if update_callback: update_callback("🏁 No new businesses found after deeper scroll — Google Maps exhausted.")
+                break
 
-                    summary_lead = {
-                        "keyword": target_keyword,
-                        "name": company_data["name"],
-                        "source": company_data.get("source", "Google Maps"),
-                        "website": company_data["website"],
-                        "email": company_data["email"],
-                        "phone": company_data.get("phone", "N/A"),
-                        "address": company_data.get("address", "N/A"),
-                        "founder": company_data.get("founder_match", "N/A"),
-                        "tech": company_data.get("tech_stack", "Unknown"),
-                        "gmb": company_data.get("gmb_status", "N/A"),
-                        "ad": company_data.get("ad_status", "N/A"),
-                        "web": company_data.get("web_status", "N/A"),
-                        "speed": company_data.get("speed_status", "N/A"),
-                        "score": company_data["score"],
-                        "decision": company_data.get("decision", "N/A"),
-                        "summary": company_data["summary"][:100] + "...",
-                        "date_added": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    final_leads.append(summary_lead)
+            if update_callback: update_callback(
+                f"📋 {len(new_companies)} new candidates this pass (skipped {len(basic_companies)-len(new_companies)} already seen).")
+
+            count = 0
+            total_new = len(new_companies)
+
+            for basic_info in new_companies:
+                count += 1
+                website = basic_info.get("website", "N/A")
+                name    = basic_info.get("name", "Unknown")
+                all_processed.add(name)   # mark seen regardless of dup status
+
+                # Smart Duplicate Check (against Sheets history)
+                is_duplicate = False
+                if website.lower() not in ["n/a", "unknown", "none", ""] and website in existing_websites:
+                    is_duplicate = True
+                    msg = f"Skipping {name} (Duplicate Website)"
+                elif name in existing_names:
+                    is_duplicate = True
+                    msg = f"Skipping {name} (Duplicate Name)"
+
+                if is_duplicate:
+                    if update_callback: update_callback(msg)
+                    continue
+
+                if update_callback: update_callback(
+                    f"Processing Lead {count}/{total_new} [✅ {len(final_leads)}/{self.limit} done]: {name}")
+
+                # ATOMIC SESSION
+                company_data    = None
+                company_content = None
+
+                # --- PHASE 1: THE BROWSER (RAM HEAVY) ---
+                try:
+                    if progress_callback: progress_callback(count / total_new)
+
+                    async with async_playwright() as p:
+                        browser, page = await self.get_browser_and_page(p)
+
+                        try:
+                            company = basic_info.copy()
+
+                            # --- WEBSITE RECOVERY SWEEP ---
+                            if company.get("website") == "N/A":
+                                company["website"] = await self.recover_website(page, company["name"])
+
+                            # Scrape with strict timeout
+                            website_content, emails, socials, phone, tech_stack, load_time = await self.scrape_website(page, company["website"])
+
+                            # --- SOCIAL RECOVERY SWEEP ---
+                            if socials.get("linkedin") == "N/A":
+                                socials["linkedin"] = await self.recover_social(page, company["name"], "linkedin")
+                            if socials.get("instagram") == "N/A":
+                                socials["instagram"] = await self.recover_social(page, company["name"], "instagram")
+                            if socials.get("facebook") == "N/A":
+                                socials["facebook"] = await self.recover_social(page, company["name"], "facebook")
+
+                            company["email"]      = ", ".join(emails) if emails else "N/A"
+                            company["phone"]      = phone
+                            company["tech_stack"] = tech_stack
+                            company["source"]     = "Google Maps"
+                            company.update(socials)
+
+                            # SIGNAL & OPPORTUNITY LOGIC
+                            if company.get("is_unclaimed", False):
+                                company["gmb_status"] = "🚩 Unclaimed"
+                                company["gmb_opp"]    = "Pitch: Claim and Optimize GMB Profile."
+                            elif company.get("reviews", 0) < 10:
+                                company["gmb_status"] = f"⚠️ Low Reviews ({company.get('reviews')})"
+                                company["gmb_opp"]    = "Pitch: Automated Review Management."
+                            else:
+                                company["gmb_status"] = "✅ Healthy"
+                                company["gmb_opp"]    = "N/A"
+
+                            if "Meta Pixel" not in tech_stack:
+                                company["ad_status"] = "📉 Not running Meta Ads"
+                                company["ad_opp"]    = "Pitch: Lead Generation Automation."
+                            else:
+                                company["ad_status"] = "🚀 Active"
+                                company["ad_opp"]    = "N/A"
+
+                            if company.get("website", "N/A") == "N/A":
+                                company["web_status"]   = "🚫 No Site"
+                                company["web_opp"]      = "Pitch: High-Converting Landing Page Build."
+                                company["speed_status"] = "N/A (No Site)"
+                                company["speed_opp"]    = "N/A"
+                            elif "WordPress" in tech_stack or "Basic" in tech_stack:
+                                company["web_status"] = "🕸️ Old WP / Basic"
+                                company["web_opp"]    = "Pitch: Performance Marketing / CRO."
+                            else:
+                                company["web_status"] = "💎 Modern"
+                                company["web_opp"]    = "N/A"
+
+                            if "speed_status" not in company:
+                                if load_time > 5:
+                                    company["speed_status"] = f"🐢 Slow ({load_time:.1f}s)"
+                                    company["speed_opp"]    = "Pitch: Website Optimization / Speed."
+                                else:
+                                    company["speed_status"] = f"⚡ Fast ({load_time:.1f}s)"
+                                    company["speed_opp"]    = "N/A"
+
+                            company["xray_status"] = "❓ Not Found"
+                            company["xray_opp"]    = "Pitch: Direct Outreach / LinkedIn DM."
+
+                            if "emergency" in target_keyword.lower():
+                                company["ad_opp"]  = "Pitch: PPC / Google Ads (Urgent need)."
+                            if "new" in target_keyword.lower():
+                                company["gmb_opp"] = "Pitch: Launch Marketing / Google Business Setup."
+
+                            # X-RAY ENRICHMENT (Dual Scan mode)
+                            if enrich_with_xray:
+                                xray_dork = f'site:linkedin.com/in "CEO" OR "Founder" "{company["name"]}"'
+                                if update_callback: update_callback(f"   🔍 X-Raying Founder for: {company['name']}")
+                                original_limit = self.limit
+                                self.limit = 1
+                                xray_results = await self.scrape_linkedin_profiles(page, xray_dork, update_callback=update_callback)
+                                self.limit = original_limit
+                                if xray_results:
+                                    founder = xray_results[0]
+                                    company['founder_match'] = f"{founder['name']} ({founder['url']})"
+                                    company['xray_status']   = "👤 Found Founder"
+                                    if update_callback: update_callback(f"   👤 Found: {founder['name']}")
+                                else:
+                                    company['founder_match'] = "Not Found"
+
+                            if company.get("linkedin") == "N/A":
+                                found_li = await self.search_linkedin(page, company["name"])
+                                if found_li != "N/A":
+                                    company["linkedin"] = found_li
+
+                            company_data    = company
+                            combined_content = f"MAPS INFO: {company.get('raw_maps_text', '')}\n\nWEBSITE INFO:\n{website_content}"
+                            company_content  = self.truncate_for_ai(combined_content, 5000)
+
+                        except Exception as e:
+                            print(f"Scrape error for {basic_info['name']}: {e}")
+                            company_data    = basic_info.copy()
+                            company_content = ""
+                        finally:
+                            await browser.close()
+                            try: await p.stop()
+                            except: pass
+
                 except Exception as e:
-                    print(f"AI/Save Error for {company_data['name']}: {e}")
-                    if update_callback: update_callback(f"Error saving {company_data['name']}")
-                    
-                # Fill-to-Target: Stop processing once we have reached the requested limit of successful inserts
-                if len(final_leads) >= self.limit:
-                    if update_callback: update_callback(f"🎯 Target reached: {self.limit} valid leads inserted.")
-                    break
+                    print(f"Browser launch error: {e}")
 
-        if update_callback: update_callback(f"Mission Complete: {target_keyword}")
+                # --- PHASE 2: MEMORY FLUSH ---
+                gc.collect()
+
+                # --- PHASE 3: AI + SAVE ---
+                if company_data:
+                    try:
+                        if update_callback: update_callback(f"AI Analyzing & Saving {company_data['name']}...")
+
+                        score, decision, age, summary, address = await self.score_lead_ai(company_data["name"], company_content or "")
+                        company_data["score"]    = score
+                        company_data["decision"] = decision
+                        company_data["age"]      = age
+                        company_data["summary"]  = summary
+                        company_data["address"]  = address
+
+                        is_saved = self.gsheets.save_lead(company_data, query=target_keyword, source="google")
+                        if not is_saved:
+                            raise Exception("Failed to save to GSheets")
+
+                        summary_lead = {
+                            "keyword":  target_keyword,
+                            "name":     company_data["name"],
+                            "source":   company_data.get("source", "Google Maps"),
+                            "website":  company_data.get("website", "N/A"),
+                            "email":    company_data.get("email", "N/A"),
+                            "phone":    company_data.get("phone", "N/A"),
+                            "address":  company_data.get("address", "N/A"),
+                            "founder":  company_data.get("founder_match", "N/A"),
+                            "tech":     company_data.get("tech_stack", "Unknown"),
+                            "gmb":      company_data.get("gmb_status", "N/A"),
+                            "ad":       company_data.get("ad_status", "N/A"),
+                            "web":      company_data.get("web_status", "N/A"),
+                            "speed":    company_data.get("speed_status", "N/A"),
+                            "score":    company_data.get("score", 0),
+                            "decision": company_data.get("decision", "N/A"),
+                            "summary":  str(company_data.get("summary", ""))[:100] + "...",
+                            "date_added": (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST")
+                        }
+                        final_leads.append(summary_lead)
+                        # Prevent re-insertion of this company in subsequent retries
+                        existing_names.add(name)
+                        existing_websites.add(company_data.get("website", ""))
+
+                        if update_callback: update_callback(
+                            f"✅ SAVED [{len(final_leads)}/{self.limit}]: {company_data['name']}")
+
+                    except Exception as e:
+                        print(f"AI/Save Error for {company_data['name']}: {e}")
+                        if update_callback: update_callback(f"Error saving {company_data['name']}")
+
+            # End of attempt's batch — outer while will re-check if we reached the target limit
+            if len(final_leads) >= self.limit:
+                break
+
+        if update_callback: update_callback(
+            f"Mission Complete: {len(final_leads)}/{self.limit} unique leads inserted — {target_keyword}")
         return final_leads
+
 
     async def run_linkedin_mission(self, keyword=None, update_callback=None, signal_mode=False,
                                     requested_count=None, existing_urls=None, search_start=0):
@@ -1384,9 +1399,6 @@ class LeadHunter:
 
                 page_had_new = False
                 for profile in profiles:
-                    if inserted >= target_count:
-                        break   # Hard cap reached mid-page
-
                     profile_url = profile.get("url", "")
 
                     # Cross-run duplicate check
@@ -1413,10 +1425,14 @@ class LeadHunter:
                         "signal": profile.get("signal", "👤 Profile"),
                         "icebreaker": icebreaker,
                         "content_preview": profile.get("content_preview", profile["snippet"][:100]),
-                        "date_added": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        "date_added": (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST")
                     }
 
-                    self.gsheets.append_linkedin_lead(lead, query=target_keyword)
+                    is_saved = self.gsheets.append_linkedin_lead(lead, query=target_keyword)
+                    if not is_saved:
+                        if update_callback: update_callback(f"Error saving {profile['name']}")
+                        continue
+
                     known_urls.add(profile_url)
                     final_leads.append(lead)
                     inserted += 1
@@ -1521,7 +1537,6 @@ class LeadHunter:
             processed_urls = set()
             
             for link in links_elements:
-                if len(profiles) >= self.limit: break
                 href = await link.get_attribute('href')
                 if href and ("linkedin.com" in href or "instagram.com" in href):
                     # Basic cleaning
@@ -1574,7 +1589,10 @@ class LeadHunter:
                 }
                 
                 # Save using the smart router
-                self.gsheets.save_lead(lead, query=dork_query, source=source)
+                is_saved = self.gsheets.save_lead(lead, query=dork_query, source=source)
+                if not is_saved:
+                    if update_callback: update_callback(f"Error saving {profile['name']}")
+                    continue
                 final_leads.append(lead)
                 
             if update_callback: update_callback(f"Mission Done. {len(final_leads)} Leads saved to GSheets.")
@@ -1657,7 +1675,7 @@ class LeadHunter:
                             else:
                                 extracted["source_url"] = url
                                 extracted["source"] = f"Universal ({prompt_type})"
-                                extracted["date_added"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                extracted["date_added"] = (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST")
                                 self.gsheets.save_lead(extracted, query=url, source="universal")
                                 results.append(extracted)
                             
@@ -1742,7 +1760,7 @@ class LeadHunter:
                     if job_data:
                         job_data["source"] = "Naukri Intelligence"
                         job_data["source_url"] = job_url
-                        job_data["date_added"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        job_data["date_added"] = (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST")
                         self.gsheets.save_lead(job_data, query=search_url, source="naukri")
                         results.append(job_data)
                         name = job_data.get('company_name') or job_data.get('Company Name') or "Unknown"
