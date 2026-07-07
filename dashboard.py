@@ -24,6 +24,9 @@ if 'results' not in st.session_state:
     st.session_state.results = []
 if 'stats' not in st.session_state:
     st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
+# Pagination depth tracker: key = "role_niche_city", value = current &start= offset
+if 'search_offsets' not in st.session_state:
+    st.session_state.search_offsets = {}
 
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
@@ -116,25 +119,33 @@ def save_to_global_db(new_leads, city_name):
     if not new_leads: return
     city_name = city_name.strip().title() if city_name else "General"
     df_new = pd.DataFrame(new_leads)
-    
+
+    # Always derive subset_cols before branching so it is always defined
+    # (fixes UnboundLocalError when city is new and the else-branch is skipped)
+    combined_preview = pd.concat(
+        [pd.DataFrame(st.session_state.global_db.get(city_name, [])), df_new]
+    ) if city_name in st.session_state.global_db else df_new
+    subset_cols = [c for c in ['Link', 'url', 'website', 'Company Name', 'Name', 'name']
+                   if c in combined_preview.columns]
+
     if city_name not in st.session_state.global_db:
         st.session_state.global_db[city_name] = new_leads
     else:
-        # Merge and remove duplicates based on Name or Website/Link
+        # Merge and remove duplicates based on Link/URL → Name fallback
         df_old = pd.DataFrame(st.session_state.global_db[city_name])
-        combined = pd.concat([df_old, df_new])
-        
-        # Identity Fingerprint: Use Link/URL if available, else Company Name
-        subset_cols = [c for c in ['Link', 'website', 'url', 'Company Name', 'Name'] if c in combined.columns]
+        combined = pd.concat([df_old, df_new], ignore_index=True)
         if subset_cols:
             combined = combined.drop_duplicates(subset=subset_cols[:1], keep='first')
-        
         st.session_state.global_db[city_name] = combined.to_dict('records')
-    
-    # Update master_leads if needed (unified view)
+
+    # Update master_leads unified view
     all_dfs = [pd.DataFrame(leads) for leads in st.session_state.global_db.values()]
     if all_dfs:
-        st.session_state.master_leads = pd.concat(all_dfs).drop_duplicates(subset=subset_cols[:1] if subset_cols else None)
+        merged = pd.concat(all_dfs, ignore_index=True)
+        st.session_state.master_leads = (
+            merged.drop_duplicates(subset=subset_cols[:1], keep='first')
+            if subset_cols else merged
+        )
 
 def clean_global_duplicates():
     """Removes duplicates across the entire Global Database by unifying then re-splitting."""
@@ -516,6 +527,21 @@ with st.sidebar:
                 st.success(f"Successfully removed {removed} duplicate leads across all missions.")
             else:
                 st.info("Your database is already 100% clean!")
+
+        st.write("---")
+        st.caption("🔍 **Deep-Hunt Pagination Tracker**")
+        offsets = st.session_state.get('search_offsets', {})
+        if offsets:
+            st.caption(f"{len(offsets)} keyword(s) have saved page offsets:")
+            for q_key, offset_val in list(offsets.items()):
+                pg = offset_val // 10 + 1
+                st.caption(f"• `{q_key[:40]}` → page {pg} (offset {offset_val})")
+        else:
+            st.caption("No saved offsets — next hunt starts from page 1.")
+        if st.button("🔄 Reset All Search Depth Pointers", use_container_width=True):
+            st.session_state.search_offsets = {}
+            st.success("All pagination pointers cleared → next hunt starts from Google page 1.")
+            st.rerun()
 
     # --- GLOBAL DATABASE ACTIONS ---
     if st.session_state.global_db:
@@ -1329,9 +1355,9 @@ if st.session_state.is_running:
         
         if "Discovered:" in msg or "Scraped:" in msg or "✅ Extracted" in msg or "📍" in msg:
             st.session_state.stats['found'] += 1
-        if "Saved" in msg or "SAVED" in msg or "✅ Saved" in msg:
+        if "Saved" in msg or "SAVED" in msg or "✅ Saved" in msg or ("✅ [" in msg and "SAVED:" in msg):
             st.session_state.stats['inserted'] += 1
-        if "Duplicate" in msg:
+        if "Duplicate" in msg or "duplicate" in msg or "⏭️ Skipped" in msg:
             st.session_state.stats['duplicates'] += 1
             
         log_placeholder.code("\n".join(st.session_state.logs[-15:]), language="text")
@@ -1363,8 +1389,40 @@ if st.session_state.is_running:
                 elif mode == "Google Maps (Local)":
                     leads = asyncio.run(hunter.run_mission(keyword=current_query, update_callback=update_ui, enrich_with_xray=False))
                 else:
-                    leads = asyncio.run(hunter.run_linkedin_mission(keyword=current_query, update_callback=update_ui, signal_mode=st.session_state.get('signal_mode', False)))
-                
+                    # -------------------------------------------------------
+                    # FILL-TO-TARGET deep-hunt: pass pagination state so that
+                    # repeated runs with the same keyword continue from the
+                    # correct Google page instead of refetching duplicates.
+                    # -------------------------------------------------------
+                    offset_key = current_query.lower().strip()
+                    current_offset = st.session_state.search_offsets.get(offset_key, 0)
+
+                    # Collect known URLs from Google Sheets to avoid cross-run dups
+                    try:
+                        gs_check = GSheetsHandler()
+                        history = gs_check.get_existing_leads()
+                        known_li_urls = history.get("urls", set())
+                    except Exception:
+                        known_li_urls = set()
+
+                    requested = st.session_state.limit
+                    update_ui(f"🎯 Fill-to-Target: Need {requested} unique leads | Starting at Google offset {current_offset}")
+
+                    leads = asyncio.run(hunter.run_linkedin_mission(
+                        keyword=current_query,
+                        update_callback=update_ui,
+                        signal_mode=st.session_state.get('signal_mode', False),
+                        requested_count=requested,
+                        existing_urls=known_li_urls,
+                        search_start=current_offset
+                    ))
+
+                    # Advance the persistent offset by the number of leads inserted
+                    # so the NEXT run continues from the right page automatically
+                    new_offset = current_offset + max(len(leads) * 1, 10)
+                    st.session_state.search_offsets[offset_key] = new_offset
+                    update_ui(f"📌 Offset saved → next run for this query will start at Google position {new_offset}")
+
                 all_leads.extend(leads)
                 if cycle < batch_cycles - 1:
                     update_ui("⏳ Cooldown 30s...")

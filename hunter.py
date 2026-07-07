@@ -764,16 +764,20 @@ class LeadHunter:
         final_dork = f'{base_dork} {titles} -intitle:jobs -inurl:jobs -inurl:recruiter'
         return final_dork
 
-    async def scrape_linkedin_profiles(self, page, keyword, is_dork=False, update_callback=None):
+    async def scrape_linkedin_profiles(self, page, keyword, is_dork=False, update_callback=None, start=0):
         """
         Scrapes LinkedIn profiles from Google search results.
+        `start` controls Google pagination depth: 0=page1, 10=page2, 20=page3, …
         """
         if is_dork:
             dork = keyword
         else:
             dork = self.generate_dork(keyword)
-            
-        search_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
+
+        base_url = f"https://www.google.com/search?q={dork.replace(' ', '+')}"
+        if start > 0:
+            base_url += f"&start={start}"
+        search_url = base_url
         if update_callback: update_callback(f"🧬 LinkedIn X-Ray: {search_url}")
         
         try:
@@ -1252,97 +1256,156 @@ class LeadHunter:
         if update_callback: update_callback(f"Mission Complete: {target_keyword}")
         return final_leads
 
-    async def run_linkedin_mission(self, keyword=None, update_callback=None, signal_mode=False):
+    async def run_linkedin_mission(self, keyword=None, update_callback=None, signal_mode=False,
+                                    requested_count=None, existing_urls=None, search_start=0):
+        """
+        LinkedIn X-Ray mission with Fill-to-Target deep-hunt capability.
+
+        Parameters
+        ----------
+        requested_count : int | None
+            If set, the mission will keep paginating through Google result pages
+            (10 results at a time) until exactly this many UNIQUE new leads are
+            saved, or the max depth (page 10 = &start=90) is exhausted.
+        existing_urls : set | None
+            Set of already-saved LinkedIn URLs used for cross-run deduplication.
+        search_start : int
+            Google &start= value to use for the FIRST page of this mission.
+        """
         target_keyword = keyword if keyword else self.keyword
         if not target_keyword:
             return []
 
+        # Resolve target count
+        target_count = requested_count if requested_count and requested_count > 0 else self.limit
+        known_urls: set = set(existing_urls) if existing_urls else set()
+
         async with async_playwright() as p:
             browser, page = await self.get_browser_and_page(p)
-            
-            if update_callback: 
+
+            if update_callback:
                 mode_text = "Signal Mode (Posts)" if signal_mode else "Profile Mode"
                 update_callback(f"Starting X-Ray Mission Control: {target_keyword} | {mode_text}")
-            
-            # Detect if keyword is already a dork (contains "site:")
+
             is_already_dork = "site:" in target_keyword.lower()
-            
-            # Choose scraping method based on signal_mode
-            if signal_mode:
-                # Use signal-based post scraping
-                profiles, blocker_status = await self.scrape_linkedin_posts(page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
-            else:
-                # Use traditional profile scraping
-                profiles = await self.scrape_linkedin_profiles(page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
-                # Check for blocker status in profile mode too
-                page_title = await page.title()
-                if "Captcha" in page_title or "Before you continue" in page_title:
-                    blocker_status = "🔴 CAPTCHA Block"
-                elif not profiles:
-                    # --- ATTEMPT 2: BROAD SEARCH FALLBACK ---
-                    if update_callback: update_callback("⚠️ No specific results. Trying Broad LinkedIn Hunt...")
-                    broad_dork = f'site:linkedin.com/in/ {target_keyword}'
-                    profiles = await self.scrape_linkedin_profiles(page, broad_dork, is_dork=True, update_callback=update_callback)
-                    
-                    if not profiles:
-                        # --- ATTEMPT 3: NATURAL LANGUAGE FALLBACK ---
-                        if update_callback: update_callback("🧬 Aggressive Mode: Trying Natural Language Search...")
-                        # Search without site: filter, and WITHOUT strict quotes for the full phrase
-                        nat_query = f'{target_keyword} linkedin profiles'
-                        profiles = await self.scrape_linkedin_profiles(page, nat_query, is_dork=False, update_callback=update_callback)
-                        
-                        if not profiles:
-                            # --- ATTEMPT 4: NUCLEAR HUNT FALLBACK ---
-                            if update_callback: update_callback("☢️ Final Attempt: Nuclear LinkedIn Hunt...")
-                            nuke_query = f'{target_keyword} linkedin'
-                            profiles = await self.scrape_linkedin_profiles(page, nuke_query, 
-                                                   is_dork=True, update_callback=update_callback)
-                            
-                            if not profiles:
-                                blocker_status = "🟡 No Results Found"
-                            else:
-                                blocker_status = "🟢 OK (Nuclear Hunt)"
-                        else:
-                            blocker_status = "🟢 OK (Natural Hunt)"
-                    else:
-                        blocker_status = "🟢 OK (Broad Hunt)"
-                else:
-                    blocker_status = "🟢 OK"
-            
-            # Report blocker status
-            if update_callback: update_callback(f"Blocker Status: {blocker_status}")
-            
-            # CRITICAL: Close browser immediately after scraping profiles
-            await browser.close()
 
             final_leads = []
-            for profile in profiles:
-                if update_callback: update_callback(f"AI Analyzing Profile Snippet: {profile['name']}...")
-                
-                # Analyze using the SNIPPET to stay logged out / safe
-                score, decision, _, summary, icebreaker = await self.score_linkedin_ai(profile["name"], profile["snippet"], profile.get("signal", "Profile"))
-                
-                lead = {
-                    "name": profile["name"],
-                    "source": "LinkedIn Post" if signal_mode else "LinkedIn Profile",
-                    "url": profile["url"],
-                    "score": score,
-                    "decision": decision,
-                    "summary": summary,
-                    "signal": profile.get("signal", "👤 Profile"),
-                    "icebreaker": icebreaker,
-                    "content_preview": profile.get("content_preview", profile["snippet"][:100]),
-                    "date_added": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
+            current_start = search_start
+            MAX_GOOGLE_START = 90   # Google reliably serves up to &start=90 (10 pages)
+            inserted = 0
+            skipped = 0
 
-                # Save to specific LinkedIn tab, passing the keyword
-                self.gsheets.append_linkedin_lead(lead, query=target_keyword)
-                
-                final_leads.append(lead)
-                if update_callback: update_callback(f"SAVED: {profile['name']}")
+            while inserted < target_count and current_start <= MAX_GOOGLE_START:
 
-            if update_callback: update_callback(f"LinkedIn Mission Complete: {target_keyword}")
-            return final_leads
+                if update_callback:
+                    page_num = current_start // 10 + 1
+                    update_callback(f"📡 Scanning Google Page {page_num} (offset {current_start})...")
+
+                # --- SCRAPE CURRENT PAGE ---
+                if signal_mode:
+                    profiles, blocker_status = await self.scrape_linkedin_posts(
+                        page, target_keyword, is_dork=is_already_dork, update_callback=update_callback)
+                else:
+                    profiles = await self.scrape_linkedin_profiles(
+                        page, target_keyword, is_dork=is_already_dork,
+                        update_callback=update_callback, start=current_start)
+
+                    page_title = await page.title()
+                    if "Captcha" in page_title or "Before you continue" in page_title:
+                        blocker_status = "🔴 CAPTCHA Block"
+                    elif not profiles and current_start == search_start:
+                        # --- Fallback chain (only on first page of a fresh hunt) ---
+                        if update_callback: update_callback("⚠️ No results. Trying Broad LinkedIn Hunt...")
+                        broad_dork = f'site:linkedin.com/in/ {target_keyword}'
+                        profiles = await self.scrape_linkedin_profiles(
+                            page, broad_dork, is_dork=True,
+                            update_callback=update_callback, start=current_start)
+
+                        if not profiles:
+                            if update_callback: update_callback("🧬 Aggressive Mode: Natural Language Search...")
+                            profiles = await self.scrape_linkedin_profiles(
+                                page, f'{target_keyword} linkedin profiles',
+                                is_dork=False, update_callback=update_callback, start=current_start)
+
+                        if not profiles:
+                            if update_callback: update_callback("☢️ Final Attempt: Nuclear LinkedIn Hunt...")
+                            profiles = await self.scrape_linkedin_profiles(
+                                page, f'{target_keyword} linkedin',
+                                is_dork=True, update_callback=update_callback, start=current_start)
+
+                    blocker_status = "🟢 OK" if profiles else "🟡 No Results Found"
+
+                if update_callback: update_callback(f"Blocker Status: {blocker_status}")
+
+                if not profiles:
+                    # No more results at this depth — bail out
+                    if update_callback:
+                        update_callback("⚠️ No more profiles found at this search depth.")
+                    break
+
+                page_had_new = False
+                for profile in profiles:
+                    if inserted >= target_count:
+                        break   # Hard cap reached mid-page
+
+                    profile_url = profile.get("url", "")
+
+                    # Cross-run duplicate check
+                    if profile_url and profile_url in known_urls:
+                        skipped += 1
+                        if update_callback:
+                            update_callback(f"  ⏭️ Skipped duplicate: {profile['name']}")
+                        continue
+
+                    if update_callback:
+                        update_callback(f"AI Analyzing Profile Snippet: {profile['name']}...")
+
+                    score, decision, _, summary, icebreaker = await self.score_linkedin_ai(
+                        profile["name"], profile["snippet"],
+                        profile.get("signal", "Profile"))
+
+                    lead = {
+                        "name": profile["name"],
+                        "source": "LinkedIn Post" if signal_mode else "LinkedIn Profile",
+                        "url": profile_url,
+                        "score": score,
+                        "decision": decision,
+                        "summary": summary,
+                        "signal": profile.get("signal", "👤 Profile"),
+                        "icebreaker": icebreaker,
+                        "content_preview": profile.get("content_preview", profile["snippet"][:100]),
+                        "date_added": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+
+                    self.gsheets.append_linkedin_lead(lead, query=target_keyword)
+                    known_urls.add(profile_url)
+                    final_leads.append(lead)
+                    inserted += 1
+                    page_had_new = True
+
+                    if update_callback:
+                        update_callback(
+                            f"  ✅ [{inserted}/{target_count}] SAVED: {profile['name']}")
+
+                # --- Decide whether to go deeper ---
+                remaining = target_count - inserted
+                if remaining > 0:
+                    # Advance to next Google page
+                    current_start += 10
+                    if update_callback and current_start <= MAX_GOOGLE_START:
+                        update_callback(
+                            f"🔍 {skipped} duplicates bypassed so far. "
+                            f"Fetching next page (offset {current_start}) to fill {remaining} more slots...")
+                else:
+                    break   # Target satisfied
+
+            await browser.close()
+
+        if update_callback:
+            update_callback(
+                f"🎯 LinkedIn Mission Complete: {target_keyword} "
+                f"| Inserted {inserted}/{target_count} | Duplicates Skipped: {skipped}")
+        return final_leads
 
     async def start_global_hunt(self, targets=None):
         if not targets:
