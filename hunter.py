@@ -371,7 +371,7 @@ class LeadHunter:
             return []
 
         results = []
-        
+
         # Try to wait for the results container or at least one result
         try:
             await page.wait_for_selector('a.hfpxzc', timeout=10000)
@@ -379,20 +379,51 @@ class LeadHunter:
             print("Timed out waiting for results selector.")
             if update_callback: update_callback("Timed out waiting for results selector.")
 
-        # Scroll down to load more results
-        if update_callback: update_callback("Scrolling to load results...")
-        for _ in range(5):
+        # -------------------------------------------------------
+        # PAGINATION via Infinite Scroll
+        # Google Maps has no page-2 URL — it loads more results
+        # as you scroll the sidebar feed. We keep scrolling until
+        # we have at least (limit * 2) candidates (buffer for dups)
+        # or we hit the end-of-list marker / max scroll depth.
+        # -------------------------------------------------------
+        target_candidates = max(self.limit * 2, 20)  # always fetch a healthy buffer
+        MAX_SCROLL_ROUNDS = 25                         # safety cap (~250 results max)
+        scroll_round = 0
+
+        if update_callback: update_callback(f"📜 Paginating Maps feed — need {target_candidates} candidates for {self.limit} inserts...")
+
+        while scroll_round < MAX_SCROLL_ROUNDS:
+            scroll_round += 1
             try:
-                feed_selector = 'div[role="feed"]'
-                feed = await page.query_selector(feed_selector)
+                feed = await page.query_selector('div[role="feed"]')
                 if feed:
-                    await feed.focus()
-                    await page.mouse.wheel(0, 3000)
+                    await feed.evaluate('el => el.scrollTop += 3000')
                 else:
                     await page.mouse.wheel(0, 5000)
-                await self.sleep_random(2, 3)
+                await self.sleep_random(1.5, 2.5)
             except:
                 break
+
+            current_items = await page.query_selector_all('a.hfpxzc')
+            loaded = len(current_items)
+
+            if update_callback: update_callback(f"  📄 Scroll #{scroll_round}: {loaded} businesses loaded...")
+
+            # Stop early if we already have enough candidates
+            if loaded >= target_candidates:
+                if update_callback: update_callback(f"  ✅ Got {loaded} candidates — stopping scroll.")
+                break
+
+            # Detect end-of-results banner
+            try:
+                end_el = await page.query_selector('span.HlvSq')  # "You've reached the end of the list"
+                if end_el:
+                    end_txt = await end_el.inner_text()
+                    if end_txt and "end" in end_txt.lower():
+                        if update_callback: update_callback(f"  🏁 End of Maps results reached at {loaded} businesses.")
+                        break
+            except:
+                pass
 
         # Primary selector for results links
         items = await page.query_selector_all('a.hfpxzc')
@@ -400,7 +431,7 @@ class LeadHunter:
             # Secondary selector: company names
             items = await page.query_selector_all('.qBF1Pd')
 
-        msg = f"Found {len(items)} items in view. Processing up to {self.limit}..."
+        msg = f"📦 Found {len(items)} total businesses. Will insert up to {self.limit} unique leads."
         print(msg)
         if update_callback: update_callback(msg)
 
