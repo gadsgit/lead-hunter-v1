@@ -1267,8 +1267,8 @@ class LeadHunter:
                         company_data["address"]  = address
 
                         is_saved = self.gsheets.save_lead(company_data, query=target_keyword, source="google")
-                        if not is_saved:
-                            raise Exception("Failed to save to GSheets")
+                        if is_saved is not True:
+                            raise Exception(f"GSheets Save Error (Returned: {is_saved})")
 
                         summary_lead = {
                             "keyword":  target_keyword,
@@ -1298,8 +1298,11 @@ class LeadHunter:
                             f"✅ SAVED [{len(final_leads)}/{self.limit}]: {company_data['name']}")
 
                     except Exception as e:
-                        print(f"AI/Save Error for {company_data['name']}: {e}")
-                        if update_callback: update_callback(f"Error saving {company_data['name']}")
+                        import traceback
+                        error_trace = traceback.format_exc()
+                        print(f"AI/Save Error for {company_data.get('name', 'Unknown')}: {e}\n{error_trace}")
+                        if update_callback: update_callback(f"Error saving {company_data.get('name', 'Unknown')}: {e}")
+                        continue
 
             # End of attempt's batch — outer while will re-check if we reached the target limit
             if len(final_leads) >= self.limit:

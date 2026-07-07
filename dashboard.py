@@ -630,6 +630,27 @@ with tab_plan:
     with col_input:
         if st.session_state.app_mode == "🏹 Unified Hunter":
             st.subheader("🎯 Target Definition")
+            
+            # Load past queries
+            if 'past_queries' not in st.session_state:
+                st.session_state.past_queries = []
+                if os.path.exists("past_queries.txt"):
+                    try:
+                        with open("past_queries.txt", "r", encoding="utf-8") as f:
+                            st.session_state.past_queries = [line.strip() for line in f.readlines() if line.strip()]
+                    except Exception:
+                        pass
+
+            # Callback to update the target_query from the selectbox
+            def update_target_from_past():
+                selected = st.session_state.past_query_selector
+                if selected and selected != "(Type new query below)":
+                    st.session_state.target_query = selected
+
+            if st.session_state.past_queries:
+                opts = ["(Type new query below)"] + list(reversed(st.session_state.past_queries))
+                st.selectbox("📂 Load Previous Query", opts, key="past_query_selector", on_change=update_target_from_past)
+
             st.text_input("Target Keyword", key="target_query", help="E.g., 'Digital Marketing Agencies in London'")
             
             st.write("---")
@@ -1263,7 +1284,23 @@ def send_whatsapp(phone, message):
         armed = st.toggle("ARMED / DISARMED", value=False)
         
         if armed:
+            def save_current_query():
+                q = st.session_state.get('target_query', '').strip()
+                if q:
+                    if 'past_queries' not in st.session_state:
+                        st.session_state.past_queries = []
+                    if q in st.session_state.past_queries:
+                        st.session_state.past_queries.remove(q)
+                    st.session_state.past_queries.append(q)
+                    try:
+                        with open("past_queries.txt", "w", encoding="utf-8") as f:
+                            for pq in st.session_state.past_queries[-50:]:  # Keep last 50
+                                f.write(f"{pq}\n")
+                    except Exception:
+                        pass
+
             if st.button("🚀 LAUNCH NEW MISSION", type="primary", use_container_width=True):
+                save_current_query()
                 st.session_state.is_running = True
                 st.session_state.logs = []
                 st.session_state.results = [] 
@@ -1278,6 +1315,7 @@ def send_whatsapp(phone, message):
             st.divider()
             st.caption("⏭️ **Continue Previous Search**")
             if st.button(f"⏭️ HUNT NEXT {st.session_state.limit}", use_container_width=True):
+                save_current_query()
                 st.session_state.is_running = True
                 st.session_state.logs = []
                 st.session_state.results = [] 
