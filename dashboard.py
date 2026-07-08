@@ -26,7 +26,8 @@ if 'stats' not in st.session_state:
     st.session_state.stats = {"found": 0, "inserted": 0, "duplicates": 0}
 # Pagination depth tracker: key = "role_niche_city", value = current &start= offset
 if 'search_offsets' not in st.session_state:
-    st.session_state.search_offsets = {}
+    with st.spinner("Synchronizing cross-device search pipelines..."):
+        st.session_state.search_offsets = GSheetsHandler().load_search_offsets_from_cloud()
 
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
@@ -119,6 +120,12 @@ def save_to_global_db(new_leads, city_name):
     if not new_leads: return
     city_name = city_name.strip().title() if city_name else "General"
     df_new = pd.DataFrame(new_leads)
+
+    # --- SINK LEADS DIRECTLY TO HARD DRIVE LOGS ---
+    emergency_csv_path = r"E:\Lead Hunter\incremental_leads_backup.csv"
+    file_exists = os.path.isfile(emergency_csv_path)
+    # Appends new items to the disk file immediately
+    df_new.to_csv(emergency_csv_path, mode='a', header=not file_exists, index=False)
 
     # Always derive subset_cols before branching so it is always defined
     # (fixes UnboundLocalError when city is new and the else-branch is skipped)
@@ -1483,7 +1490,11 @@ if st.session_state.is_running:
                     # so the NEXT run continues from the right page automatically
                     new_offset = current_offset + max(len(leads) * 1, 10)
                     st.session_state.search_offsets[offset_key] = new_offset
-                    update_ui(f"📌 Offset saved → next run for this query will start at Google position {new_offset}")
+                    try:
+                        GSheetsHandler().update_cloud_search_offset(offset_key, new_offset)
+                    except Exception as e:
+                        print(f"Failed to sync offset to cloud: {e}")
+                    update_ui(f"📌 Offset saved to cloud → next run for this query will start at Google position {new_offset}")
 
                 all_leads.extend(leads)
                 if cycle < batch_cycles - 1:

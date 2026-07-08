@@ -54,6 +54,39 @@ class GSheetsHandler:
         with open("wa_stats.txt", "w") as f:
             f.write(f"{today},{count}")
 
+    def load_search_offsets_from_cloud(self):
+        """Fetches cross-device search offsets to share keywords between PC and mobile."""
+        if not self.spreadsheet:
+            self.connect()
+        offsets = {}
+        try:
+            sheet = self.spreadsheet.worksheet("Missions")
+            records = sheet.get_all_records()
+            for row in records:
+                kw = str(row.get("Keyword", "")).lower().strip()
+                if kw:
+                    offsets[kw] = int(row.get("Offset", 0))
+        except Exception as e:
+            print(f"[WARN] No shared history setup found, using clean defaults: {e}")
+        return offsets
+
+    def update_cloud_search_offset(self, keyword, offset):
+        """Saves a search checkpoint to Google Sheets instantly to sync with other devices."""
+        if not self.spreadsheet:
+            self.connect()
+        try:
+            try:
+                sheet = self.spreadsheet.worksheet("Missions")
+            except gspread.exceptions.WorksheetNotFound:
+                sheet = self.spreadsheet.add_worksheet(title="Missions", rows="1000", cols="5")
+                sheet.append_row(["Keyword", "Offset", "Timestamp"])
+            
+            import datetime
+            sheet.append_row([keyword.lower().strip(), offset, datetime.datetime.now().strftime("%Y-%m-%d %H:%M")])
+        except Exception as e:
+            print(f"[ERROR] Failed syncing cross-device metadata: {e}")
+
+
     def connect(self):
         try:
             creds = None
