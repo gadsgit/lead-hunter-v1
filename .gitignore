@@ -9,3 +9,12 @@ google-credentials.json
 .agent/
 .gemini/
 leads.csv
+
+# Local operational files - do not push
+update_log.xlsx
+update_log.csv
+incremental_leads_backup.csv
+plan_log.md
+wa_stats.txt
+intelligence_archive.txt
+intelligence_opens.txt

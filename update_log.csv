@@ -1,8 +1,0 @@
-Date & Time (IST),File Updated,Update Details
-2026-07-08 10:11:00,hunter.py,Fixed ValueError unpack crash in score_lead_ai fallback
-2026-07-08 10:32:00,gsheets_handler.py,Added search offset cloud sync methods
-2026-07-08 10:40:00,dashboard.py,Replaced Manual Outreach tab with RAM-optimized CRM and added incremental backup
-2026-07-08 10:52:00,dashboard.py,Added WhatsApp Intent Radar Tracking for intelligence_opens.txt
-2026-07-08 10:52:00,plan_log.md,Created plan tracking log
-2026-07-08 10:55:00,dashboard.py,Injected auto-deduplicator on app startup
-2026-07-08 10:58 IST,log_update.py,Created update log utility - auto-appends to update_log.xlsx and update_log.csv on every change
