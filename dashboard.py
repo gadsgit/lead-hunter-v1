@@ -1016,6 +1016,20 @@ def send_whatsapp(phone, message):
 
                 st.write("")
 
+                # 5. LIVE INTENT RADAR: Parse Intelligence Clicks
+                hot_leads_signatures = set()
+                import os
+                if os.path.exists("intelligence_opens.txt"):
+                    try:
+                        with open("intelligence_opens.txt", "r", encoding="utf-8") as tracker_f:
+                            for line in tracker_f:
+                                # Extract company names or unique lowercase URL parts from click strings
+                                cleaned_line = line.lower().strip()
+                                if cleaned_line:
+                                    hot_leads_signatures.add(cleaned_line)
+                    except:
+                        pass
+
                 # 5. STREAMLINED CRM RENDERING LOOP
                 for idx, row in paginated_df.iterrows():
                     comp_name = row.get("Company", "Unknown Company")
@@ -1029,7 +1043,17 @@ def send_whatsapp(phone, message):
                         card_left, card_right = st.columns([3, 1])
                         
                         with card_left:
-                            st.markdown(f"### 🏢 {comp_name}")
+                            # Match company signature against click tracking data streams
+                            is_hot = False
+                            for signature in hot_leads_signatures:
+                                if comp_name.lower().strip() in signature or (website_url != "N/A" and website_url.lower().strip() in signature):
+                                    is_hot = True
+                                    break
+                            
+                            if is_hot:
+                                st.markdown(f"### 🏢 {comp_name} <span style='background-color:#FF4B4B; color:white; padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold;'>🔥 HOT LEAD - CLICKED LINK</span>", unsafe_allow_html=True)
+                            else:
+                                st.markdown(f"### 🏢 {comp_name}")
                             st.markdown(f"**Target context:** `{niche_kw}` | **Extracted from:** `{source_tab}`")
                             st.caption(f"🌐 Website: {website_url} | 📞 Phone: {phone_num}")
                         
