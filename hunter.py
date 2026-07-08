@@ -665,7 +665,7 @@ class LeadHunter:
     async def score_lead_ai(self, lead_name, website_content):
         if not self.model:
             # Fallback: Mark as pending AI review
-            return "Pending", "Pending", "Pending", "Pending AI Review"
+            return "Pending", "Pending", "Pending", "Pending AI Review", "N/A"
 
         prompt = f"""
         Analyze the following business information and website content for '{lead_name}'.
