@@ -29,6 +29,36 @@ if 'search_offsets' not in st.session_state:
     with st.spinner("Synchronizing cross-device search pipelines..."):
         st.session_state.search_offsets = GSheetsHandler().load_search_offsets_from_cloud()
 
+# --- SMART AUTO-DE-DUPLICATOR ---
+def run_startup_clean_and_dedup():
+    local_backup_csv = r"E:\Lead Hunter\incremental_leads_backup.csv"
+    if os.path.exists(local_backup_csv):
+        try:
+            df = pd.read_csv(local_backup_csv)
+            initial_count = len(df)
+            
+            # Ensure standard string formats to safely isolate overlaps
+            if 'Company Name' in df.columns:
+                df['Company Name'] = df['Company Name'].astype(str).str.strip()
+            if 'Website' in df.columns:
+                df['Website'] = df['Website'].astype(str).str.strip().str.lower()
+            
+            # Deduplicate by Website (ignoring N/A defaults) and Company Name
+            mask_valid_web = (df['Website'] != 'n/a') & (df['Website'] != '') & (df['Website'].notna())
+            df_valid_web = df[mask_valid_web].drop_duplicates(subset=['Website'], keep='first')
+            df_invalid_web = df[~mask_valid_web].drop_duplicates(subset=['Company Name'], keep='first')
+            
+            cleaned_df = pd.concat([df_valid_web, df_invalid_web], ignore_index=True)
+            final_count = len(cleaned_df)
+            
+            if initial_count > final_count:
+                cleaned_df.to_csv(local_backup_csv, index=False)
+                st.sidebar.success(f"🧹 Cleaned up {initial_count - final_count} duplicate entries automatically!")
+        except Exception as e:
+            pass
+
+run_startup_clean_and_dedup()
+
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
     "Professional Audit": "Hi {{Company}}, saw your business via {{Source}}. I noticed some growth opportunities for you. Let's talk!",
