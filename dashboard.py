@@ -966,7 +966,7 @@ def send_whatsapp(phone, message):
                 st.info("Target Delivery: 95%")
                 st.success("**Top Template:** 'Real Estate - Audit' (22% Reply Rate)")
 
-                elif st.session_state.app_mode == "🤳 Manual Outreach":
+        elif st.session_state.app_mode == "🤳 Manual Outreach":
             st.title("🎯 Persistent CRM & Outreach Hub")
             st.caption("Synchronized cross-device pipeline designed for high performance and low RAM footprint.")
 
@@ -1067,7 +1067,7 @@ def send_whatsapp(phone, message):
                                 time.sleep(0.5)
                                 st.rerun()
 
-elif st.session_state.app_mode == "🤖 AI Strategy Monitor":
+        elif st.session_state.app_mode == "🤖 AI Strategy Monitor":
             st.title("🤖 AI Strategy Monitor")
             # Render the customized CSS styling
             st.markdown('''
