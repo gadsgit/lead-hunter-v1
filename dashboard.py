@@ -59,6 +59,36 @@ def run_startup_clean_and_dedup():
 
 run_startup_clean_and_dedup()
 
+# --- AUTOMATED SUNDAY BACKUP ROTATOR ---
+def run_automatic_backup_rotator():
+    import os
+    import shutil
+    from datetime import datetime
+    
+    local_backup_csv = r"E:\Lead Hunter\incremental_leads_backup.csv"
+    backup_directory = r"E:\Lead Hunter\Backups"
+    
+    if os.path.exists(local_backup_csv):
+        try:
+            # Check if today is Sunday (weekday index 6 is Sunday in Python datetime)
+            today = datetime.now()
+            if today.weekday() == 6:
+                if not os.path.exists(backup_directory):
+                    os.makedirs(backup_directory)
+                
+                # Formulate distinct timestamped backup file name
+                date_str = today.strftime("%Y-%m-%d")
+                destination_backup = os.path.join(backup_directory, f"backup_leads_{date_str}.csv")
+                
+                # Verify we haven't already backed up today to prevent duplicate runs
+                if not os.path.exists(destination_backup):
+                    shutil.copy2(local_backup_csv, destination_backup)
+                    st.sidebar.info(f"💾 Weekly Archive Secured: backup_leads_{date_str}.csv")
+        except Exception:
+            pass
+
+run_automatic_backup_rotator()
+
 # --- TEMPLATE REPOSITORY ---
 MESSAGE_TEMPLATES = {
     "Professional Audit": "Hi {{Company}}, saw your business via {{Source}}. I noticed some growth opportunities for you. Let's talk!",
@@ -525,7 +555,7 @@ if 'city_map' not in st.session_state:
 # --- 2. SIDEBAR - WORKSPACE SELECTION ---
 st.sidebar.title("🚀 Workspace Control")
 app_mode = st.sidebar.selectbox("Choose Hunter Mode", 
-    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)", "🚀 Campaign Manager", "📊 Success Tracker", "🤳 Manual Outreach", "🤖 AI Strategy Monitor"],
+    ["🏹 Unified Hunter", "📂 Universal Directory", "💼 Job Portal Hunter (Naukri)", "🏠 Property Hunter (99acres)", "🎓 Education Hunter (Shiksha)", "🚀 Campaign Manager", "📊 Success Tracker", "🤳 Manual CRM Outreach", "🤖 AI Strategy Monitor"],
     key="app_mode_selector")
 
 # Lazy load app mode into session state
@@ -996,7 +1026,7 @@ def send_whatsapp(phone, message):
                 st.info("Target Delivery: 95%")
                 st.success("**Top Template:** 'Real Estate - Audit' (22% Reply Rate)")
 
-        elif st.session_state.app_mode == "🤳 Manual Outreach":
+        elif st.session_state.app_mode == "🤳 Manual CRM Outreach":
             st.title("🎯 Persistent CRM & Outreach Hub")
             st.caption("Synchronized cross-device pipeline designed for high performance and low RAM footprint.")
 
