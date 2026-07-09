@@ -46,7 +46,7 @@ def append_log(file_updated: str, details: str):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
     df.to_excel(LOG_EXCEL, index=False)
-    print(f"[LOG] {entry} → {file_updated}")
+    print(f"[LOG] {entry} -> {file_updated}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
