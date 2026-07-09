@@ -442,24 +442,42 @@ class GSheetsHandler:
             self.connect()
         
         all_leads = []
-        tabs_to_check = ["Google Leads", "Universal Leads", "Naukri Leads", "Leads", "Sheet1"]
+        # FIX: Include ALL tabs so keywords like 'Manufacturing company in Netherlands' appear
+        tabs_to_check = [
+            "Google Leads", "Universal Leads", "Naukri Leads",
+            "Property Leads", "Education Leads", "MASTER_ARCHIVE", "Leads", "Sheet1"
+        ]
         
         for tab_name in tabs_to_check:
             try:
                 sheet = self.spreadsheet.worksheet(tab_name)
                 data = sheet.get_all_records()
                 for row in data:
-                    # Generic mapping to ensure UI consistency
+                    # FIX: Include Address, City, Region fields
+                    raw_address = row.get("Address") or row.get("address") or ""
+                    city_val   = row.get("City")   or row.get("city")   or ""
+                    region_val = row.get("Region") or row.get("region") or ""
+                    # If city/region blank, try extracting from address (last comma-parts)
+                    if raw_address and (not city_val or not region_val):
+                        parts = [p.strip() for p in raw_address.split(",")]
+                        if not city_val and len(parts) >= 2:
+                            city_val = parts[-2]
+                        if not region_val and len(parts) >= 1:
+                            region_val = parts[-1]
+
                     lead = {
-                        "Company": row.get("Company Name") or row.get("Name") or "Unknown",
-                        "Website": row.get("Website") or "N/A",
-                        "Phone": str(row.get("Phone", "N/A")),
-                        "Email": row.get("Emails") or row.get("Email") or "N/A",
-                        "Source": row.get("Source", tab_name),
-                        "Keyword": row.get("Keyword", "N/A"),
+                        "Company":    row.get("Company Name") or row.get("Name") or "Unknown",
+                        "Website":    row.get("Website") or "N/A",
+                        "Phone":      str(row.get("Phone", "N/A")),
+                        "Email":      row.get("Emails") or row.get("Email") or "N/A",
+                        "Address":    raw_address or "N/A",
+                        "City":       city_val  or "N/A",
+                        "Region":     region_val or "N/A",
+                        "Source":     row.get("Source", tab_name),
+                        "Keyword":    row.get("Keyword", "N/A"),
                         "Icebreaker": row.get("Icebreaker", "")
                     }
-                    if lead["Phone"] != "N/A" and lead["Phone"].strip():
+                    if lead["Phone"] != "N/A" and str(lead["Phone"]).strip():
                         all_leads.append(lead)
             except:
                 continue

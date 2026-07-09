@@ -976,13 +976,20 @@ def send_whatsapp(phone, message):
                             st.write(f"📲 WhatsApp Ready: [Click here to send manually]({wa_url})")
                             st.session_state.logs.append(f"📲 WhatsApp Prepared for {company} ({phone})")
                             
+                            # FIX: Include Emailers - generate proper mailto link
+                            if enable_email and row.get("Email", "N/A") not in ["N/A", "", None]:
+                                email_addr = row["Email"]
+                                email_subject = f"Growth Opportunities for {company}"
+                                email_body = personal_msg
+                                mailto_url = f"mailto:{email_addr}?subject={urllib.parse.quote(email_subject)}&body={urllib.parse.quote(email_body)}"
+                                st.markdown(f'📧 **Email Ready:** <a href="{mailto_url}" target="_blank">Click to open email draft for {email_addr}</a>', unsafe_allow_html=True)
+                                st.session_state.logs.append(f"📧 Email draft prepared for {email_addr}")
+                                time.sleep(0.5)
+                            elif enable_email:
+                                st.caption(f"⚠️ No email for {company} — skipping emailer.")
+                            
                             st.session_state.wa_sent_today += 1
                             gs.save_wa_count(st.session_state.wa_sent_today)
-                            
-                            if enable_email and row["Email"] != "N/A":
-                                st.write(f"📧 Sending audit email to {row['Email']}...")
-                                st.session_state.logs.append(f"📧 Emailer Dispatching to {row['Email']}...")
-                                time.sleep(1)
 
                             if idx < total_batch - 1:
                                 wait_msg = f"⏳ Waiting {drip_interval}m to stay under the Red Line."
@@ -1092,11 +1099,16 @@ def send_whatsapp(phone, message):
 
                 # 5. STREAMLINED CRM RENDERING LOOP
                 for idx, row in paginated_df.iterrows():
-                    comp_name = row.get("Company", "Unknown Company")
-                    phone_num = row.get("Phone", "N/A")
+                    comp_name   = row.get("Company", "Unknown Company")
+                    phone_num   = row.get("Phone", "N/A")
+                    email_addr  = row.get("Email", "N/A")
                     website_url = row.get("Website", "N/A")
-                    niche_kw = row.get("Keyword", "N/A")
-                    source_tab = row.get("Source", "General")
+                    # FIX: Pull address / city / region from enriched lead data
+                    address_val = row.get("Address", "N/A")
+                    city_val    = row.get("City", "")
+                    region_val  = row.get("Region", "")
+                    niche_kw    = row.get("Keyword", "N/A")
+                    source_tab  = row.get("Source", "General")
                     
                     # Draw structural clean card layout objects
                     with st.container(border=True):
@@ -1116,6 +1128,12 @@ def send_whatsapp(phone, message):
                                 st.markdown(f"### 🏢 {comp_name}")
                             st.markdown(f"**Target context:** `{niche_kw}` | **Extracted from:** `{source_tab}`")
                             st.caption(f"🌐 Website: {website_url} | 📞 Phone: {phone_num}")
+                            # FIX: Show address, city and region when available
+                            addr_parts = [p for p in [address_val, city_val, region_val] if p and p not in ("N/A", "")]
+                            if addr_parts:
+                                st.caption(f"📍 {' | '.join(addr_parts)}")
+                            if email_addr and email_addr not in ("N/A", "", None):
+                                st.caption(f"✉️ {email_addr}")
                         
                         with card_right:
                             # Dynamically map clean outreach configurations
@@ -1130,26 +1148,27 @@ def send_whatsapp(phone, message):
                                 pass
                                 
                             # Build WhatsApp Template Action Payload
-                            # Using quote encoding definitions matching your core outreach blocks
-                            encoded_msg = ""
+                            from urllib.parse import quote as _url_quote
                             if phone_num != "N/A" and str(phone_num).strip():
-                                base_msg = f"Hello {comp_name}, I found your business under {niche_kw}..."
-                                from urllib.parse import quote
-                                encoded_msg = quote(base_msg)
-                                wa_url = f"https://wa.me/{phone_num}?text={encoded_msg}"
+                                clean_phone = re.sub(r'[^0-9]', '', str(phone_num))
+                                if len(clean_phone) == 10:
+                                    clean_phone = "91" + clean_phone
+                                base_msg = f"Hello {comp_name}, I found your business under {niche_kw}. Let me share some growth insights with you."
+                                encoded_msg = _url_quote(base_msg)
+                                wa_url = f"https://wa.me/{clean_phone}?text={encoded_msg}"
                                 
                                 st.write("")
-                                # Direct single-click action button that opens native phone application context
-                                st.markdown(f'<a href="{wa_url}" target="_blank"><button style="width:100%; padding:8px; background-color:#25D366; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">🚀 WhatsApp</button></a>', unsafe_allow_html=True)
+                                # FIX: Use st.link_button so clicking opens WhatsApp WITHOUT triggering st.rerun
+                                st.link_button("🚀 Send WhatsApp", wa_url, use_container_width=True)
                             else:
-                                st.caption("⚠️ No reachable mobile target sequence saved.")
-                                
+                                st.caption("⚠️ No phone number saved.")
+                            
+                            # FIX: Log Call button no longer calls st.rerun() — only shows toast
+                            # This allows sending more WhatsApps without page reload
                             if st.button("✅ Log Call", key=f"crm_log_{idx}"):
                                 st.session_state['wa_sent_today'] = st.session_state.get('wa_sent_today', 0) + 1
-                                st.toast(f"Outreach marked completed for {comp_name}!")
-                                import time
-                                time.sleep(0.5)
-                                st.rerun()
+                                gs_init.save_wa_count(st.session_state['wa_sent_today'])
+                                st.toast(f"✅ Outreach logged for {comp_name}!", icon="📲")
 
         elif st.session_state.app_mode == "🤖 AI Strategy Monitor":
             st.title("🤖 AI Strategy Monitor")
