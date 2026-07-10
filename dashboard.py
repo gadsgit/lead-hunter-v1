@@ -1353,6 +1353,12 @@ with tab_exec:
             # Add any remaining
             remaining = [c for c in df.columns if c not in cols]
             
+            # Clean 'N/A' for Link columns to prevent Streamlit validation crashes
+            for link_col in ['website', 'instagram', 'facebook']:
+                if link_col in df.columns:
+                    df[link_col] = df[link_col].replace('N/A', None)
+                    df[link_col] = df[link_col].replace('Unknown', None)
+                    
             st.dataframe(
                 df[cols + remaining], 
                 hide_index=True,
