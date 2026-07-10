@@ -1337,62 +1337,87 @@ with tab_exec:
         st.subheader("🎯 Enriched Lead Repository")
         results_placeholder = st.empty()
         
-        if st.session_state.results:
+        # --- Load results: prefer live session results, fall back to CSV backup ---
+        display_results = st.session_state.results if st.session_state.results else []
+        local_backup_csv = "incremental_leads_backup.csv"
+        if not display_results and os.path.exists(local_backup_csv):
+            try:
+                df_backup = pd.read_csv(local_backup_csv)
+                if not df_backup.empty:
+                    display_results = df_backup.to_dict(orient='records')
+                    st.caption(f"📁 Showing {len(display_results)} leads from persistent backup · Run a new hunt to refresh")
+            except Exception as csv_err:
+                st.warning(f"Could not load backup: {csv_err}")
+        
+        if display_results:
             # Create a clean dataframe view
-            df = pd.DataFrame(st.session_state.results)
+            df = pd.DataFrame(display_results)
             
+            # Normalise column names (CSV uses Title Case, session uses lowercase)
+            col_map = {
+                'Company Name': 'name', 'Keyword': 'keyword', 'Website': 'website',
+                'Emails': 'email', 'Phone': 'phone', 'Mobile': 'mobile',
+                'Chat Option': 'chat_widget', 'LinkedIn': 'linkedin',
+                'Instagram': 'instagram', 'Facebook': 'facebook',
+                'Tech Stack': 'tech', 'Score': 'score', 'Decision': 'decision',
+                'Summary': 'summary', 'Source': 'source', 'Date Added': 'date_added',
+                'GMB Status': 'gmb', 'Ad Activity': 'ad', 'Web Status': 'web',
+                'Web Speed': 'speed', 'Address': 'address',
+            }
+            df.rename(columns=col_map, inplace=True)
+
             # Reorder columns for "Hard Signals" visibility
             desired_order = [
-                "name", "source", "signal", "icebreaker", "content_preview", 
-                "gmb", "ad", "web", "speed", 
-                "gmb_opp", "ad_opp", "web_opp", "speed_opp", "xray_opp",
-                "founder", "tech", "website", "instagram", "facebook", "phone", "email", "score", "summary", "date_added"
+                "name", "mobile", "phone", "chat_widget", "email",
+                "website", "linkedin", "instagram", "facebook",
+                "source", "tech", "gmb", "ad", "web", "speed",
+                "founder", "score", "decision", "summary", "date_added"
             ]
-            # Filter to existing columns
             cols = [c for c in desired_order if c in df.columns]
-            # Add any remaining
             remaining = [c for c in df.columns if c not in cols]
             
             # Clean 'N/A' for Link columns to prevent Streamlit validation crashes
-            for link_col in ['website', 'instagram', 'facebook']:
+            for link_col in ['website', 'instagram', 'facebook', 'linkedin']:
                 if link_col in df.columns:
-                    df[link_col] = df[link_col].replace('N/A', None)
-                    df[link_col] = df[link_col].replace('Unknown', None)
+                    df[link_col] = df[link_col].replace(['N/A', 'Unknown', 'nan'], None)
                     
             st.dataframe(
                 df[cols + remaining], 
                 hide_index=True,
+                use_container_width=True,
                 column_config={
-                    "website": st.column_config.LinkColumn("Website"),
-                    "instagram": st.column_config.LinkColumn("Instagram"),
-                    "facebook": st.column_config.LinkColumn("Facebook"),
-                    "founder": st.column_config.TextColumn("Founder Match"),
-                    "tech": st.column_config.TextColumn("Tech Stack"),
-                    "gmb": st.column_config.TextColumn("GMB Status", width="small"),
-                    "ad": st.column_config.TextColumn("Ads", width="small"),
-                    "web": st.column_config.TextColumn("Web Status", width="small"),
-                    "speed": st.column_config.TextColumn("Speed", width="small"),
-                    "gmb_opp": st.column_config.TextColumn("GMB Opp", width="medium"),
-                    "ad_opp": st.column_config.TextColumn("Ad Opp", width="medium"),
-                    "web_opp": st.column_config.TextColumn("Web Opp", width="medium"),
-                    "speed_opp": st.column_config.TextColumn("Speed Opp", width="medium"),
-                    "xray_opp": st.column_config.TextColumn("X-Ray Opp", width="medium"),
-                    "signal": st.column_config.TextColumn("Signal", width="small"),
-                    "icebreaker": st.column_config.TextColumn("Icebreaker", width="large"),
-                    "content_preview": st.column_config.TextColumn("Preview", width="medium"),
-                    "source": st.column_config.TextColumn("Lead Source", width="small"),
+                    "name":         st.column_config.TextColumn("Company", width="medium"),
+                    "mobile":       st.column_config.TextColumn("📱 Mobile", width="medium"),
+                    "phone":        st.column_config.TextColumn("📞 Phone", width="medium"),
+                    "chat_widget":  st.column_config.TextColumn("💬 Chat Options", width="large"),
+                    "email":        st.column_config.TextColumn("✉️ Email", width="medium"),
+                    "website":      st.column_config.LinkColumn("🌐 Website"),
+                    "linkedin":     st.column_config.LinkColumn("LinkedIn"),
+                    "instagram":    st.column_config.LinkColumn("Instagram"),
+                    "facebook":     st.column_config.LinkColumn("Facebook"),
+                    "founder":      st.column_config.TextColumn("Founder Match"),
+                    "tech":         st.column_config.TextColumn("Tech Stack"),
+                    "gmb":          st.column_config.TextColumn("GMB Status",   width="small"),
+                    "ad":           st.column_config.TextColumn("Ads",          width="small"),
+                    "web":          st.column_config.TextColumn("Web Status",   width="small"),
+                    "speed":        st.column_config.TextColumn("Speed",        width="small"),
+                    "score":        st.column_config.NumberColumn("Score", format="%d"),
+                    "decision":     st.column_config.TextColumn("Decision",     width="small"),
+                    "summary":      st.column_config.TextColumn("Summary",      width="large"),
+                    "source":       st.column_config.TextColumn("Source",       width="small"),
                 }
             )
             
-            csv = df.to_csv(index=False).encode('utf-8')
+            csv_export = df.to_csv(index=False).encode('utf-8')
             col_d1, col_d2 = st.columns(2)
-            col_d1.download_button("📥 Download Lead List (CSV)", csv, "leads.csv", "text/csv", type="primary", use_container_width=True)
+            col_d1.download_button("📥 Download Lead List (CSV)", csv_export, "leads.csv", "text/csv", type="primary", use_container_width=True)
             
             # Archive Download
             if os.path.exists("intelligence_archive.txt"):
                 with open("intelligence_archive.txt", "rb") as f:
                     col_d2.download_button("🧠 Download Intelligence Archive", f, "intelligence_archive.txt", "text/plain", use_container_width=True)
         else:
+
             results_placeholder.info("No leads captured in this session.")
 
 # --- 4. EXECUTION ENGINE ---
