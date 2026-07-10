@@ -32,75 +32,60 @@ def check_google_workspace(email_str):
         pass
     return False
 
-def is_likely_us_number(raw_str):
-    """Returns True if the raw string looks like a North American number."""
-    # Explicit +1 prefix
-    if re.match(r'^\+?1[\s\-]?\(?\d{3}\)?', str(raw_str).strip()):
-        return True
-    # NPA-NXX style: area codes like 201,732,609 etc. (3-3-4 pattern with dashes)
-    if re.match(r'^\(?[2-9]\d{2}\)?[\s\-]?[2-9]\d{2}[\s\-]?\d{4}$', str(raw_str).strip()):
-        return True
-    return False
+import phonenumbers
+from phonenumbers import phonenumberutil
 
 def sanitize_phone_raw(raw_str):
     """Returns None if the string is clearly not a phone number (e.g. employee range)"""
     raw_str = str(raw_str).strip()
-    # Reject if it has letters (except common phone label chars)
     if re.search(r'[a-zA-Z]', raw_str): return None
-    # Reject if it contains newlines or dashes used as ranges (e.g. '500-1000')
     if '\n' in raw_str: return None
-    # Reject if too many dashes indicating a range: '500-1000'
     if re.match(r'^\d+\-\d+$', raw_str.strip()): return None
     return raw_str
 
-def validate_and_parse_contact_fields(raw_phone_str, website_url="", email_str=""):
+def clean_and_classify_phone(raw_phone, default_region="US"):
+    try:
+        parsed_num = phonenumbers.parse(raw_phone, default_region)
+        
+        if phonenumbers.is_valid_number(parsed_num):
+            formatted = phonenumbers.format_number(parsed_num, phonenumbers.PhoneNumberFormat.E164)
+            num_type = phonenumberutil.number_type(parsed_num)
+            # Both MOBILE and FIXED_LINE_OR_MOBILE are considered mobile enough for WhatsApp
+            is_mobile = num_type in [
+                phonenumberutil.PhoneNumberType.MOBILE,
+                phonenumberutil.PhoneNumberType.FIXED_LINE_OR_MOBILE
+            ]
+            return {"clean_number": formatted, "is_mobile": is_mobile, "error": None}
+    except Exception as e:
+        pass
+    return {"clean_number": raw_phone, "is_mobile": False, "error": "Invalid Format"}
+
+def validate_and_parse_contact_fields(raw_phone_str, website_url="", email_str="", default_region="US"):
     """
-    Validates and sorts contact fields instantly.
-    - Handles US (+1) numbers correctly: stored as Phone, NOT Indian Mobile
-    - Handles Indian (+91 or 10-digit starting 6-9) as Mobile
-    - Detects WhatsApp, Google Workspace Chat from context
+    Validates and sorts contact fields instantly using phonenumbers library.
     Returns: (is_phone_valid, is_mobile_valid, phone_val, mobile_val, chat_type)
     """
     phone_clean = "N/A"
     mobile_clean = "N/A"
     chat_detected = "None/Standard"
 
-    # 0. Sanitize - reject garbage like employee count ranges
     cleaned = sanitize_phone_raw(raw_phone_str)
-    if not cleaned:
-        return False, False, "N/A", "N/A", chat_detected
-
-    # 1. Check for explicit US/Canada country code (+1) → store as Phone
-    if is_likely_us_number(cleaned):
-        digits = re.sub(r'[^\d]', '', cleaned)
-        # Format as US: +1 (xxx) xxx-xxxx
-        if len(digits) >= 10:
-            ten = digits[-10:]
-            phone_clean = f"+1 ({ten[:3]}) {ten[3:6]}-{ten[6:]}"
-        return True, False, phone_clean, "N/A", chat_detected
-
-    # 2. Check for explicit +91 prefix → Indian number
-    digits_only = re.sub(r'[\s\-\(\)\+]', '', cleaned)
-    has_91 = cleaned.strip().startswith('+91') or cleaned.strip().startswith('91') and len(digits_only) == 12
-
-    # 3. Differentiate Indian Mobile vs. Landline
-    is_valid_pattern = len(digits_only) >= 10
-    if is_valid_pattern:
-        last10 = digits_only[-10:]
-        if re.search(r'^[6-9]\d{9}$', last10):
-            if has_91 or len(digits_only) <= 12:  # Only tag as Indian if 91 prefix or ≤12 digits
-                mobile_clean = f"+91 {last10}"
+    
+    if cleaned:
+        result = clean_and_classify_phone(cleaned, default_region)
+        if result["error"] is None:
+            if result["is_mobile"]:
+                mobile_clean = result["clean_number"]
             else:
-                phone_clean = f"+{digits_only}"  # Foreign number, store as phone
-        elif has_91:
-            phone_clean = f"+91 {last10}"  # Indian landline
+                phone_clean = result["clean_number"]
         else:
-            phone_clean = digits_only  # Generic, no country code
+            # Fallback
+            phone_clean = cleaned
 
-    is_phone_valid = phone_clean != "N/A"
+    is_phone_valid = phone_clean not in ["N/A", cleaned]
     is_mobile_valid = mobile_clean != "N/A"
 
-    # 4. Fast Scan Website Domain for Active Live-Chat Widgets
+    # Fast Scan Website Domain for Active Live-Chat Widgets
     web_lower = str(website_url).lower()
     if "wa.me" in web_lower or "api.whatsapp" in web_lower:
         chat_detected = "WhatsApp Link"
@@ -111,12 +96,10 @@ def validate_and_parse_contact_fields(raw_phone_str, website_url="", email_str="
     elif "chat.google.com" in web_lower:
         chat_detected = "Google Chat"
 
-    # 5. Infer WhatsApp from Indian Mobile
     if is_mobile_valid and "WhatsApp" not in chat_detected:
-        chat_detected = ("WhatsApp Possible" if chat_detected == "None/Standard"
-                         else chat_detected + " | WhatsApp Possible")
+        chat_detected = ("Verified Mobile" if chat_detected == "None/Standard"
+                         else chat_detected + " | Verified Mobile")
 
-    # 6. Check for Google Workspace (MX Records) to infer Google Chat
     if email_str and email_str not in ["N/A", "", "Pending Deep Background Scan..."]:
         first_email = email_str.split(',')[0].strip()
         if check_google_workspace(first_email):
@@ -663,6 +646,20 @@ class LeadHunter:
             if phone_match:
                 phone = phone_match.group(0).strip()
 
+            # Chat Detection
+            html_lower = html.lower()
+            widgets = []
+            if "drift.com" in html_lower or "driftt" in html_lower:
+                widgets.append("Drift")
+            if "teams.live.com" in html_lower or "teams.microsoft.com" in html_lower:
+                widgets.append("Microsoft Teams")
+            if "intercomcdn" in html_lower or "widget.intercom.io" in html_lower:
+                widgets.append("Intercom")
+            if "gwebchat" in html_lower or "google-chat" in html_lower:
+                widgets.append("Google Chat")
+            
+            chat_detected = ", ".join(widgets) if widgets else "None/Standard"
+
             # Socials - Round 1 (Homepage)
             socials = await self.extract_socials(page)
             
@@ -697,11 +694,11 @@ class LeadHunter:
                 except Exception as ex:
                     print(f"  -> Contact jump info: {ex}")
             
-            return content[:5000], emails, socials, phone, tech_stack, load_time # First 5000 chars for LLM
+            return content[:5000], emails, socials, phone, tech_stack, load_time, chat_detected # First 5000 chars for LLM
         except Exception as e:
             print(f"Error scraping {url}: {e}")
             load_time = time.time() - start_time if load_time == 0 else load_time
-            return "", [], {}, "N/A", "Unknown", load_time
+            return "", [], {}, "N/A", "Unknown", load_time, "None/Standard"
 
     async def recover_website(self, page, company_name):
         """Searches Google for the company's official website if Maps entry is empty."""
@@ -1275,7 +1272,7 @@ class LeadHunter:
                             browser_fill, page_fill = await self.get_browser_and_page(p_fill)
                             try:
                                 fill_site = website if website not in ["N/A", ""] else await self.recover_website(page_fill, name)
-                                content_fill, emails_fill, socials_fill, phone_fill, tech_fill, _ = await self.scrape_website(page_fill, fill_site)
+                                content_fill, emails_fill, socials_fill, phone_fill, tech_fill, _, chat_detected_fill = await self.scrape_website(page_fill, fill_site)
                                 
                                 # Build update dict — only overwrite N/A fields
                                 if df_existing is not None and existing_row_idx is not None:
@@ -1352,6 +1349,36 @@ class LeadHunter:
                 file_exists = os.path.isfile(local_csv)
                 df_core.to_csv(local_csv, mode='a', header=not file_exists, index=False)
                 
+                # IMMEDIATE GOOGLE SHEETS INSERT
+                pending_gsheets_row = {
+                    "name": name,
+                    "website": site_url if site_url else "N/A",
+                    "email": "⏳ Pending Enrichment",
+                    "phone": fine_phone,
+                    "mobile": fine_mobile,
+                    "chat_widget": chat_widget,
+                    "address": "⏳ Pending Enrichment",
+                    "linkedin": "⏳ Pending Enrichment",
+                    "instagram": "⏳ Pending Enrichment",
+                    "facebook": "⏳ Pending Enrichment",
+                    "tech_stack": "⏳ Pending Enrichment",
+                    "score": 0,
+                    "decision": "⏳ Pending Enrichment",
+                    "summary": "⏳ Pending Enrichment",
+                    "gmb_status": "⏳ Pending Enrichment",
+                    "gmb_opp": "⏳ Pending Enrichment",
+                    "ad_status": "⏳ Pending Enrichment",
+                    "ad_opp": "⏳ Pending Enrichment",
+                    "web_status": "⏳ Pending Enrichment",
+                    "web_opp": "⏳ Pending Enrichment",
+                    "speed_status": "⏳ Pending Enrichment",
+                    "speed_opp": "⏳ Pending Enrichment",
+                    "xray_status": "⏳ Pending Enrichment",
+                    "xray_opp": "⏳ Pending Enrichment",
+                    "icebreaker": "⏳ Pending Enrichment"
+                }
+                self.gsheets.save_lead(pending_gsheets_row, query=target_keyword, source="google")
+                
                 if update_callback: update_callback(f"⚡ [INSTANT SAVE] {name} | Mobile: {fine_mobile} | Chat: {chat_widget}")
 
                 if update_callback: update_callback(
@@ -1376,7 +1403,7 @@ class LeadHunter:
                                 company["website"] = await self.recover_website(page, company["name"])
 
                             # Scrape with strict timeout
-                            website_content, emails, socials, phone, tech_stack, load_time = await self.scrape_website(page, company["website"])
+                            website_content, emails, socials, phone, tech_stack, load_time, chat_detected_d = await self.scrape_website(page, company["website"])
 
                             # --- SOCIAL RECOVERY SWEEP ---
                             if socials.get("linkedin") == "N/A":
@@ -1489,15 +1516,7 @@ class LeadHunter:
                         company_data["age"]      = age
                         company_data["summary"]  = summary
                         company_data["address"]  = address
-                        company_data["mobile"]   = fine_mobile
-                        company_data["chat_widget"] = chat_widget
-
-                        is_saved = self.gsheets.save_lead(company_data, query=target_keyword, source="google")
-                        if is_saved is not True:
-                            raise Exception(f"GSheets Save Error (Returned: {is_saved})")
-
                         # STAGE 2: Deep Enrichment Update — now we have the real email!
-                        # Re-run full validation with email so Google Workspace + WhatsApp are both detected
                         deep_email = company_data.get("email", "N/A")
                         deep_phone = company_data.get("phone", "N/A")
                         deep_site  = company_data.get("website", "")
@@ -1507,12 +1526,22 @@ class LeadHunter:
                         )
                         if fine_mobile_d != "N/A": fine_mobile = fine_mobile_d; is_m_val = is_m_val_d
                         if fine_phone_d  != "N/A": fine_phone  = fine_phone_d;  is_p_val = is_p_val_d
-                        # Always take the richer chat widget result
-                        if chat_widget_d != "None/Standard": chat_widget = chat_widget_d
+                        
+                        # Merge the HTML-body chat_detected_d with the domain/email chat_widget_d
+                        final_chat_widget = set([c.strip() for c in chat_widget_d.split("|") if c.strip() != "None/Standard"])
+                        for c in chat_detected_d.split(", "):
+                            if c.strip() and c.strip() != "None/Standard":
+                                final_chat_widget.add(c.strip())
+                        chat_widget = " | ".join(final_chat_widget) if final_chat_widget else "None/Standard"
                         
                         # Push refined values back so gsheets row is accurate
                         company_data["mobile"]      = fine_mobile
                         company_data["chat_widget"] = chat_widget
+                        
+                        # UPDATE GOOGLE SHEETS
+                        is_updated = self.gsheets.update_lead(company_data["name"], query=target_keyword, data=company_data, source="google")
+                        if is_updated is not True:
+                            print(f"[WARN] GSheets Update Error (Returned: {is_updated})")
                             
                         # Update the CSV row with full enriched data
                         try:

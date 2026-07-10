@@ -321,6 +321,115 @@ class GSheetsHandler:
             print(f"[ERROR] Routing Error: {error_msg}")
             return str(e)   # Return short error string (no full trace to keep UI clean)
 
+    def update_lead(self, company_name, query, data, source="google"):
+        """
+        Updates an existing lead in Google Sheets after deep enrichment.
+        Uses the Company Name to find the row.
+        """
+        try:
+            if not self.client:
+                self.connect()
+                
+            target_sheet_name = "Leads"
+            import sys
+            app_mode = "Unified Hunter"
+            if 'streamlit' in sys.modules:
+                import streamlit as st
+                if 'app_mode' in st.session_state:
+                    app_mode = st.session_state.app_mode
+
+            if source == "linkedin":
+                target_sheet_name = "LinkedIn Leads"
+            elif "Universal" in app_mode:
+                target_sheet_name = "Universal Leads"
+            elif "Naukri" in app_mode:
+                target_sheet_name = "Naukri Leads"
+            elif "99acres" in app_mode:
+                target_sheet_name = "Property Leads"
+            elif "Shiksha" in app_mode:
+                target_sheet_name = "Education Leads"
+            elif source == "google":
+                target_sheet_name = "Google Leads"
+
+            sheet = self.get_or_create_worksheet(target_sheet_name, source)
+            
+            # Find the row by company name
+            cell = sheet.find(company_name)
+            if not cell:
+                print(f"[WARN] update_lead: {company_name} not found in sheet {target_sheet_name}. Falling back to append.")
+                return self.save_lead(data, query, source)
+                
+            row_number = cell.row
+            
+            if target_sheet_name == "LinkedIn Leads" or source == "linkedin":
+                row = [
+                    query, data.get('name', 'N/A'), data.get('url', 'N/A'), data.get('score', 0), data.get('summary', 'N/A'),
+                    data.get('decision', 'N/A'), data.get('signal', 'N/A'), data.get('icebreaker', 'N/A'), data.get('source', "LinkedIn"),
+                    data.get('date_added', (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST"))
+                ]
+                range_str = f"A{row_number}:J{row_number}"
+            else:
+                row = [
+                    query,
+                    data.get('name', data.get('company_name', data.get('property_name', 'N/A'))),
+                    data.get('website', data.get('source_url', 'N/A')),
+                    data.get('email', data.get('email_guess', 'N/A')),
+                    data.get('phone', 'N/A'),
+                    data.get('mobile', 'N/A'),
+                    data.get('chat_widget', 'N/A'),
+                    data.get('address', 'N/A'),
+                    data.get('linkedin', 'N/A'),
+                    data.get('instagram', 'N/A'),
+                    data.get('facebook', 'N/A'),
+                    data.get('tech_stack', 'N/A'),
+                    data.get('score', 0),
+                    data.get('decision', 'N/A'),
+                    data.get('summary', data.get('reasoning', 'N/A')),
+                    data.get('gmb_status', 'N/A'),
+                    data.get('gmb_opp', 'N/A'),
+                    data.get('ad_status', 'N/A'),
+                    data.get('ad_opp', 'N/A'),
+                    data.get('web_status', 'N/A'),
+                    data.get('web_opp', 'N/A'),
+                    data.get('speed_status', 'N/A'),
+                    data.get('speed_opp', 'N/A'),
+                    data.get('xray_status', 'N/A'),
+                    data.get('xray_opp', 'N/A'),
+                    data.get('icebreaker', 'N/A'),
+                    data.get('source', app_mode),
+                    data.get('date_added', (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST"))
+                ]
+                range_str = f"A{row_number}:AB{row_number}"
+
+            sheet.update(range_name=range_str, values=[row])
+            
+            # --- SECONDARY BACKUP: Master Archive ---
+            try:
+                master_sheet = self.get_or_create_worksheet("MASTER_ARCHIVE", source if source != "linkedin" else "google")
+                master_cell = master_sheet.find(company_name)
+                if master_cell:
+                    m_row_num = master_cell.row
+                    if source == "linkedin":
+                        master_row = [
+                            query, data.get('name', 'N/A'), data.get('url', 'N/A'), "N/A", "N/A", "N/A", "N/A", data.get('url', 'N/A'),
+                            "N/A", "N/A", "N/A", data.get('score', 0), data.get('decision', 'N/A'), data.get('summary', 'N/A')
+                        ] + ["N/A"] * 10 + [data.get('icebreaker', 'N/A'), "LinkedIn Master", data.get('date_added', (datetime.datetime.now() + datetime.timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S IST"))]
+                        master_sheet.update(range_name=f"A{m_row_num}:AB{m_row_num}", values=[master_row])
+                    else:
+                        master_sheet.update(range_name=f"A{m_row_num}:AB{m_row_num}", values=[row])
+            except Exception as e_master:
+                print(f"[WARN] Master Archive Update failed: {e_master}")
+
+            print(f"[OK] Lead updated in {target_sheet_name}: {company_name}")
+            return True
+
+        except Exception as e:
+            import traceback
+            error_msg = f"{e}\n{traceback.format_exc()}"
+            print(f"[ERROR] Update Routing Error: {error_msg}")
+            return str(e)
+
+
     def get_or_create_worksheet(self, title, source):
         """Finds or creates a worksheet with the given title and appropriate headers."""
         if not self.spreadsheet:
