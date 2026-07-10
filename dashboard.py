@@ -616,6 +616,15 @@ with st.sidebar:
         # Cloud Sync Button
         if st.button("🔄 Sync Master DB to Cloud", use_container_width=True, type="primary"):
             sync_to_cloud()
+            
+        # HTML CRM Sync Button
+        if st.button("🔌 Sync to HTML CRM", use_container_width=True):
+            import sync_crm
+            success, msg = sync_crm.sync_leads_to_crm(st.session_state.get('master_leads'))
+            if success:
+                st.toast(f"✅ {msg}")
+            else:
+                st.toast(f"❌ {msg}")
 
         excel_data = export_global_excel()
         if excel_data:
