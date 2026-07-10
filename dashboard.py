@@ -482,7 +482,55 @@ if "tracking_id" in st.query_params:
 # --- CUSTOM STYLING ---
 # --- CUSTOM STYLING ---
 st.title("🏹 Lead Hunter - Unified Intelligence Console")
-st.markdown("🌐 **[Open HTML CRM Dashboard](file:///E:/Lead%20Hunter/crm/index.html)** (Sync leads from the sidebar first!)")
+
+# --- EMBEDDED CRM HELPER ---
+def render_embedded_crm(leads_df=None):
+    """Reads the CRM's CSS + JS + HTML from disk, inlines them, and renders via st.components."""
+    import streamlit.components.v1 as components
+    import json, re as _re
+
+    crm_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crm")
+    css_path = os.path.join(crm_dir, "crm.css")
+    js_path  = os.path.join(crm_dir, "crm.js")
+    html_path = os.path.join(crm_dir, "index.html")
+
+    try:
+        with open(css_path, "r", encoding="utf-8") as f: css_text = f.read()
+        with open(js_path,  "r", encoding="utf-8") as f: js_text  = f.read()
+        with open(html_path,"r", encoding="utf-8") as f: html_text= f.read()
+    except FileNotFoundError as e:
+        st.error(f"CRM files not found: {e}")
+        return
+
+    # If live leads are passed, inject them into the JS LEADS array
+    if leads_df is not None and not leads_df.empty:
+        import re as _re2
+        leads_list = []
+        for i, row in enumerate(leads_df.to_dict('records')):
+            name = str(row.get('Company Name', 'Unknown'))
+            if name.lower() == 'nan': name = 'Unknown'
+            source = str(row.get('Keyword', 'Imported'))[:30]
+            score_str = str(row.get('Score', '0'))
+            try:
+                score = int(_re2.sub(r'\D', '', score_str)) if _re2.search(r'\d', score_str) else 0
+            except: score = 0
+            if score >= 80: temp, status, stage = 'hot', 'SQL', 'sql'
+            elif score >= 50: temp, status, stage = 'warm', 'MQL', 'mql'
+            else: temp, status, stage = 'cold', 'Prospect', 'prospect'
+            phone = str(row.get('Mobile', row.get('Phone', 'N/A'))); phone = 'N/A' if phone.lower()=='nan' else phone
+            email = str(row.get('Emails', 'N/A')); email = 'N/A' if email.lower()=='nan' else email
+            highlight = str(row.get('Chat Widget Available', 'No highlight.')); highlight = 'No highlight.' if highlight.lower()=='nan' else highlight
+            leads_list.append({"id":i+1,"name":name,"source":source,"score":score,"temp":temp,"status":status,
+                                "owner":"Advit","touch":"Just now","stage":stage,"acv":0,
+                                "phone":phone,"email":email,"highlight":highlight[:120]})
+        new_leads_json = json.dumps(leads_list, indent=2)
+        js_text = _re.sub(r'const LEADS = \[\s*[\s\S]*?\s*\];', f'const LEADS = {new_leads_json};', js_text, count=1)
+
+    # Inline CSS and JS into HTML (replace link/script tags)
+    html_out = html_text.replace('<link rel="stylesheet" href="crm.css" />', f'<style>{css_text}</style>')
+    html_out = html_out.replace('<script src="crm.js"></script>', f'<script>{js_text}</script>')
+
+    components.html(html_out, height=850, scrolling=True)
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: #ffffff; }
@@ -695,7 +743,7 @@ st.sidebar.metric("RAM Health", f"{ram:.0f} MB", "Safe" if ram < 450 else "High"
 st.sidebar.info(f"Current Workspace: **{st.session_state.app_mode}**")
 
 # Main Workspace
-tab_plan, tab_exec = st.tabs(["⚙️ Configure Mission", "📡 Live Intelligence Feed"])
+tab_plan, tab_exec, tab_crm = st.tabs(["⚙️ Configure Mission", "📡 Live Intelligence Feed", "🗂️ CRM Dashboard"])
 
 with tab_plan:
     col_input, col_settings = st.columns([2, 1])
@@ -1487,3 +1535,50 @@ if st.session_state.is_running:
         st.session_state.is_running = False
         render_metrics()
         st.error(f"Error: {e}")
+
+# ============================================================
+# 🗂️ CRM DASHBOARD TAB — Embedded inline, no file:/// needed
+# ============================================================
+with tab_crm:
+    st.subheader("🗂️ Embedded CRM — Intelligence Console")
+
+    # Resolve the best available data source
+    crm_df = None
+    if 'master_leads' in st.session_state and not st.session_state.master_leads.empty:
+        crm_df = st.session_state.master_leads
+        st.caption(f"✅ Live session data: **{len(crm_df)} leads** from current session")
+    else:
+        local_csv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "incremental_leads_backup.csv")
+        if os.path.exists(local_csv):
+            try:
+                crm_df = pd.read_csv(local_csv)
+                if crm_df.empty:
+                    crm_df = None
+                    st.info("Backup CSV is empty. Run a Hunt first!")
+                else:
+                    st.caption(f"📂 Loaded from local backup: **{len(crm_df)} leads**")
+            except pd.errors.EmptyDataError:
+                crm_df = None
+                st.info("Backup CSV has no data yet. Run a Hunt to populate leads!")
+        else:
+            st.info("No lead data available yet — run a Hunt first, then come back here.")
+
+    col_crm_a, col_crm_b = st.columns([3, 1])
+    with col_crm_b:
+        if st.button("🔄 Refresh CRM Data", use_container_width=True, key="crm_refresh_btn"):
+            st.rerun()
+        if crm_df is not None:
+            st.metric("Total Leads", len(crm_df))
+            hot_count = 0
+            if 'Score' in crm_df.columns:
+                for _, r in crm_df.iterrows():
+                    try:
+                        s = int(re.sub(r'\D', '', str(r.get('Score', '0'))) or 0)
+                        if s >= 80: hot_count += 1
+                    except: pass
+            st.metric("Hot Leads (≥80)", hot_count)
+
+    with col_crm_a:
+        st.markdown("> **Tip:** Use **🔌 Sync to HTML CRM** in the sidebar to persist leads to `crm.js` permanently.")
+
+    render_embedded_crm(crm_df)
