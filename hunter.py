@@ -1240,8 +1240,74 @@ class LeadHunter:
 
                 if is_duplicate:
                     if update_callback: update_callback(msg)
-                    continue  # Skip — already in database, don't re-save
+                    # ── SMART UPSERT: Check if existing row has missing fields ──────
+                    # Instead of a hard skip, peek at the local CSV to see what's empty.
+                    # If critical fields are N/A, trigger a targeted fill-in scrape.
+                    local_csv_path = r"E:\Lead Hunter\incremental_leads_backup.csv"
+                    needs_fill = False
+                    existing_row_idx = None
+                    df_existing = None
+                    FILL_FIELDS = ['Emails', 'Mobile', 'Phone', 'Chat Option', 'LinkedIn', 'Instagram', 'Facebook']
+                    
+                    if os.path.exists(local_csv_path):
+                        try:
+                            df_existing = pd.read_csv(local_csv_path)
+                            # Find the matching row by name or website
+                            name_match = df_existing.index[df_existing['Company Name'].astype(str).str.strip() == name.strip()].tolist()
+                            if name_match:
+                                existing_row_idx = name_match[0]
+                                row = df_existing.iloc[existing_row_idx]
+                                # Check if any critical field is missing
+                                for f in FILL_FIELDS:
+                                    val = str(row.get(f, "N/A")).strip()
+                                    if val in ["N/A", "", "nan", "Pending Deep Background Scan..."]:
+                                        needs_fill = True
+                                        break
+                        except: pass
+                    
+                    if not needs_fill:
+                        continue  # Truly complete — full skip
+                    
+                    # Has missing fields → run targeted deep scrape to fill them in
+                    if update_callback: update_callback(f"🔄 [FILL-IN] {name} has missing fields — running targeted enrichment...")
+                    try:
+                        async with async_playwright() as p_fill:
+                            browser_fill, page_fill = await self.get_browser_and_page(p_fill)
+                            try:
+                                fill_site = website if website not in ["N/A", ""] else await self.recover_website(page_fill, name)
+                                content_fill, emails_fill, socials_fill, phone_fill, tech_fill, _ = await self.scrape_website(page_fill, fill_site)
+                                
+                                # Build update dict — only overwrite N/A fields
+                                if df_existing is not None and existing_row_idx is not None:
+                                    def fill_if_empty(col, new_val):
+                                        cur = str(df_existing.loc[existing_row_idx, col]).strip() if col in df_existing.columns else "N/A"
+                                        if cur in ["N/A", "", "nan", "Pending Deep Background Scan..."] and new_val and str(new_val).strip() not in ["N/A", "", "nan"]:
+                                            df_existing.loc[existing_row_idx, col] = new_val
+                                    
+                                    if emails_fill:
+                                        email_str_fill = ", ".join(emails_fill)
+                                        fill_if_empty('Emails', email_str_fill)
+                                        # Re-validate with email for chat detection
+                                        _, is_m_f, fp_f, fm_f, cw_f = validate_and_parse_contact_fields(phone_fill, fill_site, email_str_fill)
+                                        fill_if_empty('Phone',       fp_f)
+                                        fill_if_empty('Mobile',      fm_f)
+                                        fill_if_empty('Chat Option', cw_f)
+                                    
+                                    for platform in ['linkedin', 'instagram', 'facebook']:
+                                        col_name = platform.capitalize()
+                                        fill_if_empty(col_name, socials_fill.get(platform, "N/A"))
+                                    
+                                    df_existing.to_csv(local_csv_path, index=False)
+                                    if update_callback: update_callback(f"✅ [FILL-IN COMPLETE] {name} updated with missing fields.")
+                            except Exception as fill_err:
+                                if update_callback: update_callback(f"⚠️ Fill-in error for {name}: {fill_err}")
+                            finally:
+                                await browser_fill.close()
+                    except Exception as outer_fill_err:
+                        if update_callback: update_callback(f"⚠️ Fill-in browser error: {outer_fill_err}")
+                    continue  # Don't create a new row — we just updated the existing one
                 
+
                 # --- FAST-PRIORITY STREAMING (STAGE 1) ---
                 raw_phone = ""
                 raw_txt = basic_info.get("raw_maps_text", "")
