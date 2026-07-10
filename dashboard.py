@@ -480,9 +480,9 @@ if "tracking_id" in st.query_params:
     st.stop()
 
 # --- CUSTOM STYLING ---
-st.title("🏹 Lead Hunter - Unified Intelligence Console")
-
 # --- CUSTOM STYLING ---
+st.title("🏹 Lead Hunter - Unified Intelligence Console")
+st.markdown("🌐 **[Open HTML CRM Dashboard](file:///E:/Lead%20Hunter/crm/index.html)** (Sync leads from the sidebar first!)")
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: #ffffff; }
