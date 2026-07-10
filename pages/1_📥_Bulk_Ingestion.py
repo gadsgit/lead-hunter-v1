@@ -45,8 +45,8 @@ edited_url_df = st.data_editor(
     use_container_width=True,
     column_config={
         "Platform": st.column_config.SelectboxColumn("Platform", options=["Google Sheets", "OneDrive"]),
-        "Source Tag": st.column_config.TextColumn("Lead Source Label (e.g. Naukri, Maps)", placeholder="99acres"),
-        "URL": st.column_config.TextColumn("Spreadsheet Link", placeholder="Paste sharing URL here...")
+        "Source Tag": st.column_config.TextColumn("Lead Source Label (e.g. Naukri, Maps)"),
+        "URL": st.column_config.TextColumn("Spreadsheet Link")
     }
 )
 
