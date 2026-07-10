@@ -5,7 +5,7 @@ import pandas as pd
 import datetime
 import re
 import time
-from hunter import LeadHunter
+from lead_hunter import LeadHunter
 from gsheets_handler import GSheetsHandler
 from dotenv import load_dotenv
 import io

@@ -1,5 +1,5 @@
 import asyncio
-from hunter import LeadHunter
+from lead_hunter import LeadHunter
 
 async def main():
     print("Initializing LeadHunter test run...")
