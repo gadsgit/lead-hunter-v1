@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hunter CRM — Intelligence Console</title>
+<link rel="stylesheet" href="crm.css" />
+</head>
+<body>
+
+<div class="crm-shell">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="crm-rail">
+    <div class="crm-brand">
+      <div class="crm-brand__mark">H</div>
+      <div>
+        <div class="crm-brand__name">Hunter CRM</div>
+        <div class="crm-brand__sub">MISSION CONTROL</div>
+      </div>
+    </div>
+
+    <nav class="crm-nav">
+      <div class="crm-nav__group-label">Pipeline</div>
+      <a class="crm-nav__item is-active" data-view="pipeline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        Pipeline <span class="crm-nav__badge">14</span>
+      </a>
+      <a class="crm-nav__item" data-view="leads">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        Leads <span class="crm-nav__badge">312</span>
+      </a>
+      <a class="crm-nav__item" data-view="accounts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="1"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        Accounts <span class="crm-nav__badge">86</span>
+      </a>
+
+      <div class="crm-nav__group-label">Work</div>
+      <a class="crm-nav__item" data-view="tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>
+        Tasks <span class="crm-nav__badge">7</span>
+      </a>
+      <a class="crm-nav__item" data-view="reports">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l3-4 4 3 5-7"/></svg>
+        Reports
+      </a>
+
+      <div class="crm-nav__group-label">System</div>
+      <a class="crm-nav__item" data-view="automation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+        Automation
+      </a>
+    </nav>
+
+    <div class="crm-rail__footer">
+      <div class="crm-avatar">AD</div>
+      <div>
+        <div class="who">Advit</div>
+        <div class="role">iAdsClick · Admin</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="crm-main">
+
+    <div class="crm-topbar">
+      <div>
+        <div class="crm-topbar__title" id="crm-title">Pipeline</div>
+        <div class="crm-topbar__meta" id="crm-meta">SYNCED WITH SHEETS · SUPABASE LIVE</div>
+      </div>
+      <div class="crm-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" placeholder="Search leads, accounts, deals…" />
+      </div>
+      <button class="crm-btn">Sync Now</button>
+      <button class="crm-btn crm-btn--primary" id="crm-add-lead">+ New Lead</button>
+    </div>
+
+    <!-- signal strip: signature element — live temperature readout across current leads -->
+    <div class="crm-signalstrip" id="crm-signalstrip"></div>
+
+    <div class="crm-content">
+
+      <!-- ===================== PIPELINE VIEW ===================== -->
+      <section class="crm-view is-active" id="view-pipeline">
+        <div class="crm-stats">
+          <div class="crm-stat" style="--stat-color:var(--signal)">
+            <div class="crm-stat__label">Open Pipeline</div>
+            <div class="crm-stat__value">₹18.4L</div>
+            <div class="crm-stat__delta up">↑ 12% this week</div>
+          </div>
+          <div class="crm-stat" style="--stat-color:var(--warm)">
+            <div class="crm-stat__label">ACV (avg)</div>
+            <div class="crm-stat__value">₹42.6K</div>
+            <div class="crm-stat__delta up">↑ 4%</div>
+          </div>
+          <div class="crm-stat" style="--stat-color:var(--info)">
+            <div class="crm-stat__label">Win Rate</div>
+            <div class="crm-stat__value">28%</div>
+            <div class="crm-stat__delta down">↓ 2%</div>
+          </div>
+          <div class="crm-stat" style="--stat-color:var(--signal)">
+            <div class="crm-stat__label">Hot Leads</div>
+            <div class="crm-stat__value">31</div>
+            <div class="crm-stat__delta">of 312 total</div>
+          </div>
+          <div class="crm-stat" style="--stat-color:var(--alert)">
+            <div class="crm-stat__label">Overdue Tasks</div>
+            <div class="crm-stat__value">3</div>
+            <div class="crm-stat__delta down">needs attention</div>
+          </div>
+        </div>
+
+        <div class="crm-section-head">
+          <div>
+            <h2>Deal Pipeline</h2>
+            <div class="sub">Prospect → MQL → SQL → Won / Lost</div>
+          </div>
+          <div class="crm-tools">
+            <button class="crm-btn">Filter</button>
+            <button class="crm-btn">Group by Rep</button>
+          </div>
+        </div>
+
+        <div class="crm-kanban" id="crm-kanban"></div>
+      </section>
+
+      <!-- ===================== LEADS VIEW ===================== -->
+      <section class="crm-view" id="view-leads">
+        <div class="crm-section-head">
+          <div>
+            <h2>All Leads</h2>
+            <div class="sub">312 records · synced from Hunter scrape + manual import</div>
+          </div>
+          <div class="crm-tools">
+            <button class="crm-btn">Export CSV</button>
+            <button class="crm-btn">Bulk WhatsApp</button>
+          </div>
+        </div>
+        <div class="crm-table-wrap">
+          <table class="crm-table">
+            <thead>
+              <tr>
+                <th>Lead</th><th>Source</th><th>Score</th><th>Status</th><th>Owner</th><th>Last Touch</th>
+              </tr>
+            </thead>
+            <tbody id="crm-leads-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== ACCOUNTS VIEW ===================== -->
+      <section class="crm-view" id="view-accounts">
+        <div class="crm-section-head">
+          <div><h2>Accounts</h2><div class="sub">Companies linked to one or more leads/deals</div></div>
+        </div>
+        <div class="crm-table-wrap">
+          <table class="crm-table">
+            <thead><tr><th>Account</th><th>Industry</th><th>Open Deals</th><th>Total ACV</th><th>Health</th></tr></thead>
+            <tbody id="crm-accounts-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== TASKS VIEW ===================== -->
+      <section class="crm-view" id="view-tasks">
+        <div class="crm-grid-2">
+          <div class="crm-panel">
+            <h3>Today &amp; Overdue</h3>
+            <div id="crm-task-list"></div>
+          </div>
+          <div class="crm-panel">
+            <div class="crm-ai">
+              <div class="crm-ai__label">AI SUGGESTION</div>
+              3 leads have had no reply for 2+ days — auto follow-up drafts are ready to review and send.
+            </div>
+            <h3 style="margin-top:16px;">Assignment Rules</h3>
+            <div class="crm-task__meta" style="margin-bottom:8px;">Active rules routing new leads</div>
+            <div class="crm-task"><div class="crm-task__body"><div class="crm-task__title">Location = Noida → Rep: Advit</div><div class="crm-task__meta">Fires on lead.created</div></div></div>
+            <div class="crm-task"><div class="crm-task__body"><div class="crm-task__title">Score ≥ 80 → Priority queue</div><div class="crm-task__meta">Fires on lead.scored</div></div></div>
+            <div class="crm-task"><div class="crm-task__body"><div class="crm-task__title">No reply 48h → Follow-up email + WA draft</div><div class="crm-task__meta">Fires on schedule</div></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== REPORTS VIEW ===================== -->
+      <section class="crm-view" id="view-reports">
+        <div class="crm-grid-2">
+          <div class="crm-panel">
+            <h3>Pipeline by Stage</h3>
+            <div class="crm-barlist" id="crm-stage-bars"></div>
+          </div>
+          <div class="crm-panel">
+            <h3>Lead Source Mix</h3>
+            <div class="crm-barlist" id="crm-source-bars"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== AUTOMATION VIEW ===================== -->
+      <section class="crm-view" id="view-automation">
+        <div class="crm-empty">
+          Workflow builder lives here — trigger → criteria → action, same shape as your notes.<br/>
+          Wire this panel to the <code>workflow_rules</code> table once Phase 2 backend is live.
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- ============ LEAD DETAIL MODAL ============ -->
+<div class="crm-modal-backdrop" id="crm-modal">
+  <div class="crm-modal">
+    <div class="crm-modal__head">
+      <div>
+        <div class="crm-modal__title" id="crm-modal-name">—</div>
+        <div class="crm-modal__sub" id="crm-modal-sub">—</div>
+      </div>
+      <div class="crm-close" id="crm-modal-close">✕</div>
+    </div>
+
+    <div class="crm-ai">
+      <div class="crm-ai__label">AI HIGHLIGHT</div>
+      <span id="crm-modal-highlight">—</span>
+    </div>
+
+    <div class="crm-modal__row"><span class="k">SCORE</span><span class="v" id="crm-modal-score">—</span></div>
+    <div class="crm-modal__row"><span class="k">STAGE</span><span class="v" id="crm-modal-stage">—</span></div>
+    <div class="crm-modal__row"><span class="k">SOURCE</span><span class="v" id="crm-modal-source">—</span></div>
+    <div class="crm-modal__row"><span class="k">PHONE</span><span class="v" id="crm-modal-phone">—</span></div>
+    <div class="crm-modal__row"><span class="k">EMAIL</span><span class="v" id="crm-modal-email">—</span></div>
+
+    <div class="crm-modal__actions">
+      <button class="crm-btn crm-btn--primary">Draft Follow-up (AI)</button>
+      <button class="crm-btn">Open WhatsApp</button>
+      <button class="crm-btn">Log Task</button>
+    </div>
+  </div>
+</div>
+
+<script src="crm.js"></script>
+</body>
+</html>

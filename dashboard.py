@@ -181,11 +181,8 @@ def save_to_global_db(new_leads, city_name):
     city_name = city_name.strip().title() if city_name else "General"
     df_new = pd.DataFrame(new_leads)
 
-    # --- SINK LEADS DIRECTLY TO HARD DRIVE LOGS ---
-    emergency_csv_path = r"E:\Lead Hunter\incremental_leads_backup.csv"
-    file_exists = os.path.isfile(emergency_csv_path)
-    # Appends new items to the disk file immediately
-    df_new.to_csv(emergency_csv_path, mode='a', header=not file_exists, index=False)
+    # Note: Instant Saving to incremental_leads_backup.csv is now handled by hunter.py directly
+    # for "First-Priority Streaming". We only maintain the global DB state here.
 
     # Always derive subset_cols before branching so it is always defined
     # (fixes UnboundLocalError when city is new and the else-branch is skipped)

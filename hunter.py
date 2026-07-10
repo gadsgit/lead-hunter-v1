@@ -13,6 +13,48 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import gc
 import datetime
+import pandas as pd
+
+def validate_and_parse_contact_fields(raw_phone_str, website_url=""):
+    """
+    Validates and sorts contact fields instantly.
+    Returns: (is_phone_valid, is_mobile_valid, phone_val, mobile_val, chat_type)
+    """
+    phone_clean = "N/A"
+    mobile_clean = "N/A"
+    chat_detected = "None/Standard"
+    
+    # 1. Clean numerical symbols
+    digits_only = re.sub(r'[\s\-\(\)\+]', '', str(raw_phone_str))
+    
+    # 2. Differentiate Mobile vs. Fixed Line
+    is_valid_pattern = len(digits_only) >= 10
+    
+    if is_valid_pattern:
+        # Check if it looks like an active mobile string
+        if re.search(r'^[6-9]\d{9}$', digits_only[-10:]):
+            mobile_clean = f"+91 {digits_only[-10:]}" if len(digits_only) == 10 else f"+{digits_only}"
+        else:
+            phone_clean = f"+91 {digits_only[-10:]}" if len(digits_only) == 10 else f"+{digits_only}"
+            
+    is_phone_valid = phone_clean != "N/A"
+    is_mobile_valid = mobile_clean != "N/A"
+    
+    # 3. Fast Scan Website Domain for Active Live-Chat Widgets
+    web_lower = str(website_url).lower()
+    if "wa.me" in web_lower or "api.whatsapp" in web_lower:
+        chat_detected = "WhatsApp Link"
+    elif "drift.com" in web_lower or "drifttteam" in web_lower:
+        chat_detected = "Drift Chat"
+    elif "intercom" in web_lower:
+        chat_detected = "Intercom"
+    elif "chat.google.com" in web_lower or "google" in web_lower:
+        # Check if explicitly targeting google chat avenues
+        if "chat" in web_lower:
+            chat_detected = "Google Chat"
+            
+    return is_phone_valid, is_mobile_valid, phone_clean, mobile_clean, chat_detected
+
 
 # Try importing different stealth implementations to compatible with different versions
 stealth_async = None
@@ -1129,6 +1171,51 @@ class LeadHunter:
                 if is_duplicate:
                     if update_callback: update_callback(msg)
                     continue
+                
+                # --- FAST-PRIORITY STREAMING (STAGE 1) ---
+                raw_phone = ""
+                raw_txt = basic_info.get("raw_maps_text", "")
+                phone_match = re.search(r'(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', raw_txt)
+                if phone_match:
+                    raw_phone = phone_match.group(0).strip()
+                
+                site_url = website
+                is_p_val, is_m_val, fine_phone, fine_mobile, chat_widget = validate_and_parse_contact_fields(raw_phone, site_url)
+                
+                local_csv = r"E:\Lead Hunter\incremental_leads_backup.csv"
+                skip_deep = False
+                if os.path.exists(local_csv):
+                    try:
+                        df_check = pd.read_csv(local_csv)
+                        web_clean = site_url.strip().lower() if site_url else "n/a"
+                        if 'Website' in df_check.columns and web_clean != "n/a" and web_clean != "":
+                            if web_clean in df_check['Website'].astype(str).str.lower().values:
+                                skip_deep = True
+                    except:
+                        pass
+                
+                if skip_deep:
+                    if update_callback: update_callback(f"Skipping {name} (Duplicate Website in Fast-Save)")
+                    continue
+
+                core_row = {
+                    "Keyword": target_keyword,
+                    "Company Name": name,
+                    "Website": site_url if site_url else "N/A",
+                    "Phone": fine_phone,
+                    "Phone Valid": "YES" if is_p_val else "NO",
+                    "Mobile": fine_mobile,
+                    "Mobile Valid": "YES" if is_m_val else "NO",
+                    "Chat Widget Available": chat_widget,
+                    "Emails": "Pending Deep Background Scan...",
+                    "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                }
+                
+                df_core = pd.DataFrame([core_row])
+                file_exists = os.path.isfile(local_csv)
+                df_core.to_csv(local_csv, mode='a', header=not file_exists, index=False)
+                
+                if update_callback: update_callback(f"⚡ [INSTANT SAVE] {name} | Mobile: {fine_mobile} | Chat: {chat_widget}")
 
                 if update_callback: update_callback(
                     f"Processing Lead {count}/{total_new} [✅ {len(final_leads)}/{self.limit} done]: {name}")
@@ -1270,13 +1357,39 @@ class LeadHunter:
                         if is_saved is not True:
                             raise Exception(f"GSheets Save Error (Returned: {is_saved})")
 
+                        # STAGE 2: Deep Enrichment Update
+                        # We use validate_and_parse_contact_fields again in case the deep scan found a better phone
+                        if company_data.get("phone", "N/A") != "N/A":
+                            is_p_val_d, is_m_val_d, fine_phone_d, fine_mobile_d, chat_widget_d = validate_and_parse_contact_fields(company_data["phone"], company_data.get("website", ""))
+                            if fine_mobile_d != "N/A": fine_mobile = fine_mobile_d; is_m_val = is_m_val_d
+                            if fine_phone_d != "N/A": fine_phone = fine_phone_d; is_p_val = is_p_val_d
+                            if chat_widget_d != "None/Standard": chat_widget = chat_widget_d
+                            
+                        # Update the CSV asynchronously
+                        try:
+                            df_update = pd.read_csv(local_csv)
+                            idx = df_update.index[df_update['Company Name'] == name].tolist()
+                            if idx:
+                                df_update.loc[idx[0], 'Emails'] = company_data.get("email", "N/A")
+                                df_update.loc[idx[0], 'Phone'] = fine_phone
+                                df_update.loc[idx[0], 'Phone Valid'] = "YES" if is_p_val else "NO"
+                                df_update.loc[idx[0], 'Mobile'] = fine_mobile
+                                df_update.loc[idx[0], 'Mobile Valid'] = "YES" if is_m_val else "NO"
+                                df_update.to_csv(local_csv, index=False)
+                        except:
+                            pass
+
                         summary_lead = {
                             "keyword":  target_keyword,
                             "name":     company_data["name"],
                             "source":   company_data.get("source", "Google Maps"),
                             "website":  company_data.get("website", "N/A"),
                             "email":    company_data.get("email", "N/A"),
-                            "phone":    company_data.get("phone", "N/A"),
+                            "phone":    fine_phone,
+                            "Phone Valid": "YES" if is_p_val else "NO",
+                            "mobile":   fine_mobile,
+                            "Mobile Valid": "YES" if is_m_val else "NO",
+                            "chat_widget": chat_widget,
                             "address":  company_data.get("address", "N/A"),
                             "founder":  company_data.get("founder_match", "N/A"),
                             "tech":     company_data.get("tech_stack", "Unknown"),
