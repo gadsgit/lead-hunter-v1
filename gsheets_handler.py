@@ -159,7 +159,7 @@ class GSheetsHandler:
 
         try:
             expected_headers = [
-                "Keyword", "Company Name", "Website", "Emails", "Phone", "Address", "LinkedIn", 
+                "Keyword", "Company Name", "Website", "Emails", "Phone", "Mobile", "Chat Option", "Address", "LinkedIn", 
                 "Instagram", "Facebook", "Tech Stack",
                 "Score", "Decision", "Summary", 
                 "GMB Status", "GMB Opp", 
@@ -267,6 +267,8 @@ class GSheetsHandler:
                     data.get('website', data.get('source_url', 'N/A')),
                     data.get('email', data.get('email_guess', 'N/A')),
                     data.get('phone', 'N/A'),
+                    data.get('mobile', 'N/A'),
+                    data.get('chat_widget', 'N/A'),
                     data.get('address', 'N/A'),
                     data.get('linkedin', 'N/A'),
                     data.get('instagram', 'N/A'),
@@ -301,7 +303,7 @@ class GSheetsHandler:
                 if source == "linkedin":
                     # Map limited LinkedIn data to full schema
                     master_row = [
-                        query, data.get('name', 'N/A'), data.get('url', 'N/A'), "N/A", "N/A", data.get('url', 'N/A'),
+                        query, data.get('name', 'N/A'), data.get('url', 'N/A'), "N/A", "N/A", "N/A", "N/A", data.get('url', 'N/A'),
                         "N/A", "N/A", "N/A", data.get('score', 0), data.get('decision', 'N/A'), data.get('summary', 'N/A')
                     ] + ["N/A"] * 10 + [data.get('icebreaker', 'N/A'), "LinkedIn Master", data.get('date_added', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))]
                     self.safe_append(master_sheet, master_row)
@@ -331,7 +333,7 @@ class GSheetsHandler:
                 headers = ["Keyword", "Name", "LinkedIn URL", "Score", "Summary", "Decision", "Signal", "Icebreaker", "Source", "Date Added"]
             else:
                 headers = [
-                    "Keyword", "Name", "Website", "Emails", "Phone", "Address", "LinkedIn", 
+                    "Keyword", "Name", "Website", "Emails", "Phone", "Mobile", "Chat Option", "Address", "LinkedIn", 
                     "Instagram", "Facebook", "Tech Stack",
                     "Score", "Decision", "Summary", 
                     "GMB Status", "GMB Opp", 
@@ -469,6 +471,8 @@ class GSheetsHandler:
                         "Company":    row.get("Company Name") or row.get("Name") or "Unknown",
                         "Website":    row.get("Website") or "N/A",
                         "Phone":      str(row.get("Phone", "N/A")),
+                        "Mobile":     str(row.get("Mobile", "N/A")),
+                        "Chat Option": row.get("Chat Option", "N/A"),
                         "Email":      row.get("Emails") or row.get("Email") or "N/A",
                         "Address":    raw_address or "N/A",
                         "City":       city_val  or "N/A",
@@ -477,7 +481,7 @@ class GSheetsHandler:
                         "Keyword":    row.get("Keyword", "N/A"),
                         "Icebreaker": row.get("Icebreaker", "")
                     }
-                    if lead["Phone"] != "N/A" and str(lead["Phone"]).strip():
+                    if lead["Phone"] != "N/A" and str(lead["Phone"]).strip() or lead["Mobile"] != "N/A" and str(lead["Mobile"]).strip():
                         all_leads.append(lead)
             except:
                 continue

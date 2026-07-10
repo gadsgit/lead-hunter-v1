@@ -1163,14 +1163,14 @@ class LeadHunter:
                 is_duplicate = False
                 if website.lower() not in ["n/a", "unknown", "none", ""] and website in existing_websites:
                     is_duplicate = True
-                    msg = f"Skipping {name} (Duplicate Website)"
+                    msg = f"Already in database: {name} (Duplicate Website)"
                 elif name in existing_names:
                     is_duplicate = True
-                    msg = f"Skipping {name} (Duplicate Name)"
+                    msg = f"Already in database: {name} (Duplicate Name)"
 
                 if is_duplicate:
                     if update_callback: update_callback(msg)
-                    continue
+                    # We continue processing per user request to not skip data
                 
                 # --- FAST-PRIORITY STREAMING (STAGE 1) ---
                 raw_phone = ""
@@ -1352,6 +1352,8 @@ class LeadHunter:
                         company_data["age"]      = age
                         company_data["summary"]  = summary
                         company_data["address"]  = address
+                        company_data["mobile"]   = fine_mobile
+                        company_data["chat_widget"] = chat_widget
 
                         is_saved = self.gsheets.save_lead(company_data, query=target_keyword, source="google")
                         if is_saved is not True:
